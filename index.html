@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#03080f"/>
+<meta name="mapbox-token" content=""/>
+<title>DREV Assist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet"/>
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css"/>
+<link rel="stylesheet" href="css/assist.css"/>
+</head>
+<body>
+
+<!-- SVG icon library -->
+<svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
+  <symbol id="ic-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13H12L11 22L19.5 11H12L13 2Z"/></symbol>
+  <symbol id="ic-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11V13"/><path d="M6 11H12"/><path d="M9 8V14"/></symbol>
+  <symbol id="ic-tire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5V5M12 19V21.5M2.5 12H5M19 12H21.5M4.8 4.8L6.6 6.6M17.4 17.4L19.2 19.2M4.8 19.2L6.6 17.4M17.4 6.6L19.2 4.8"/></symbol>
+  <symbol id="ic-tow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9H15L19 5H22V15H18"/><circle cx="6" cy="16" r="2.5"/><circle cx="15" cy="16" r="2.5"/><path d="M8.5 16H12.5"/><path d="M3 16H3.5"/></symbol>
+  <symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="10" r="4.5"/><path d="M12.5 13.5L21 22"/><path d="M18 17L20 15"/><path d="M15 20L17 18"/></symbol>
+  <symbol id="ic-fuel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v12"/><path d="M15 9h2a2 2 0 0 1 2 2v5a1 1 0 0 0 2 0V9l-3-3"/><path d="M4 11h11"/></symbol>
+  <symbol id="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="ic-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="ic-home-charge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M13 13l-2 3h4l-2 3"/></symbol>
+  <symbol id="ic-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-4M7 2v4M17 2v4"/><path d="M5 6h14a1 1 0 0 1 1 1v4a5 5 0 0 1-10 0 5 5 0 0 1-6 0V7a1 1 0 0 1 1-1z"/><path d="M12 18H8a2 2 0 0 0-2 2v.5"/></symbol>
+  <symbol id="ic-circuit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="4" height="4" rx="1"/><rect x="15" y="5" width="4" height="4" rx="1"/><rect x="5" y="15" width="4" height="4" rx="1"/><rect x="15" y="15" width="4" height="4" rx="1"/><path d="M9 7h6M9 17h6M7 9v6M17 9v6"/></symbol>
+  <symbol id="ic-panel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 4V20M2 9h6M2 14h6M12 9h8M12 12h8M12 15h5"/></symbol>
+  <symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="ic-locate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+  <symbol id="ic-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></symbol>
+  <symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="ic-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="ic-satellite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m3.5 11.5 1 1m6-9 1 1M5.5 9.5l9-9m-9 14 9-9"/><path d="M9.5 5.5c4-4 9-4.5 12.5-1S18 14 14 18"/></symbol>
+</svg>
+
+<!-- Map fills viewport -->
+<div id="map" role="region" aria-label="Pickup location map"></div>
+
+<!-- Vignette overlay -->
+<div class="map-vignette" aria-hidden="true"></div>
+
+<!-- Status bar -->
+<header class="status-bar">
+  <div class="wordmark">
+    <span class="wm-d">D</span>REV<span class="wm-thin"> ASSIST</span>
+  </div>
+  <div class="sb-actions">
+    <button class="icon-btn" id="profile-btn" aria-label="Profile">
+      <svg width="20" height="20"><use href="#ic-user"/></svg>
+    </button>
+    <button class="mode-pill" id="mode-toggle">ROADSIDE</button>
+  </div>
+</header>
+
+<!-- Map FABs -->
+<div class="map-fabs" id="map-fabs">
+  <button class="fab" id="satellite-btn" aria-label="Toggle satellite" aria-pressed="false">
+    <svg width="17" height="17"><use href="#ic-satellite"/></svg>
+  </button>
+  <button class="fab" id="locate-btn" aria-label="My location">
+    <svg width="17" height="17"><use href="#ic-locate"/></svg>
+  </button>
+  <button class="fab" id="compass-btn" aria-label="Reset bearing">
+    <svg width="17" height="17"><use href="#ic-compass"/></svg>
+  </button>
+</div>
+
+<!-- Pickup pin — JS positions this to map center -->
+<div class="pickup-pin" id="pickup-pin" aria-hidden="true">
+  <div class="pin-ring"></div>
+  <div class="pin-body">
+    <svg width="14" height="14"><use href="#ic-pin"/></svg>
+  </div>
+  <div class="pin-stem"></div>
+  <div class="pin-dot"></div>
+</div>
+
+<!-- Geocoder search -->
+<div class="geocoder-wrap" id="geocoder-wrap"></div>
+
+<!-- Bottom sheet -->
+<section class="sheet" id="sheet" data-snap="mid">
+
+  <div class="sheet-handle-row" id="sheet-handle-row">
+    <div class="sheet-handle"></div>
+  </div>
+
+  <!-- Address strip -->
+  <div class="addr-strip" id="sheet-addr-row">
+    <div class="addr-dot">
+      <svg width="14" height="14"><use href="#ic-pin"/></svg>
+    </div>
+    <div class="addr-content">
+      <div class="addr-eyebrow">PICKUP POINT</div>
+      <div class="addr-text" id="addr-text">Charlotte, NC — locating…</div>
+    </div>
+    <div class="addr-badge" id="addr-accuracy">·</div>
+  </div>
+
+  <!-- Sheet scroll area -->
+  <div class="sheet-body" id="sheet-body">
+
+    <!-- Category tabs -->
+    <div class="cat-toggle" id="cat-toggle">
+      <button class="cat-btn active" data-cat="roadside">ROADSIDE</button>
+      <button class="cat-btn" data-cat="home">HOME ENERGY</button>
+    </div>
+
+    <!-- Roadside grid -->
+    <div class="svc-section" id="sec-roadside">
+      <div class="svc-grid" id="svc-grid-roadside">
+
+        <button class="svc-card active" data-svc="mobile-ev-charge" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-bolt"/></svg></div>
+          <div class="svc-name">EV Charge</div>
+        </button>
+
+        <button class="svc-card" data-svc="jump-start" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-battery"/></svg></div>
+          <div class="svc-name">Jump Start</div>
+        </button>
+
+        <button class="svc-card" data-svc="flat-tire" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-tire"/></svg></div>
+          <div class="svc-name">Flat Tire</div>
+        </button>
+
+        <button class="svc-card" data-svc="tow-coordination" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-tow"/></svg></div>
+          <div class="svc-name">Tow</div>
+        </button>
+
+        <button class="svc-card" data-svc="lockout" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-key"/></svg></div>
+          <div class="svc-name">Lockout</div>
+        </button>
+
+        <button class="svc-card" data-svc="fuel-delivery" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-fuel"/></svg></div>
+          <div class="svc-name">Fuel</div>
+        </button>
+
+        <button class="svc-card svc-card--warn" data-svc="collision-incident" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-alert"/></svg></div>
+          <div class="svc-name">Incident</div>
+        </button>
+
+        <button class="svc-card" data-svc="other-roadside" data-cat="roadside">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-wrench"/></svg></div>
+          <div class="svc-name">Other</div>
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Home energy grid -->
+    <div class="svc-section hidden" id="sec-home">
+      <div class="svc-grid" id="svc-grid-home">
+
+        <button class="svc-card active" data-svc="home-charger-install" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-home-charge"/></svg></div>
+          <div class="svc-name">Install</div>
+        </button>
+
+        <button class="svc-card" data-svc="home-charger-repair" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-plug"/></svg></div>
+          <div class="svc-name">Repair</div>
+        </button>
+
+        <button class="svc-card" data-svc="v2h-planning" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-circuit"/></svg></div>
+          <div class="svc-name">V2H</div>
+        </button>
+
+        <button class="svc-card" data-svc="panel-battery-review" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-panel"/></svg></div>
+          <div class="svc-name">Panel</div>
+        </button>
+
+        <button class="svc-card" data-svc="outage-readiness" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-shield"/></svg></div>
+          <div class="svc-name">Outage Prep</div>
+        </button>
+
+        <button class="svc-card" data-svc="other-home" data-cat="home">
+          <div class="svc-icon"><svg width="26" height="26"><use href="#ic-wrench"/></svg></div>
+          <div class="svc-name">Other</div>
+        </button>
+
+      </div>
+    </div>
+
+    <div class="sheet-rule"></div>
+
+    <!-- Incident warning -->
+    <div class="collision-banner hidden" id="collision-block">
+      <svg width="16" height="16"><use href="#ic-alert"/></svg>
+      <span><strong>Not emergency services.</strong> Call 911 for injuries. DREV reviews scene-safety logistics only.</span>
+    </div>
+
+    <!-- Form -->
+    <div class="req-form" id="req-form">
+
+      <div class="form-group">
+        <label class="form-label" for="inp-vehicle">VEHICLE</label>
+        <input class="form-input" id="inp-vehicle" type="text" placeholder="Year Make Model" autocomplete="off"/>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">POWERTRAIN</label>
+        <div class="pill-group" id="pill-powertrain">
+          <button class="pill active" data-val="bev">BEV</button>
+          <button class="pill" data-val="phev">PHEV</button>
+          <button class="pill" data-val="ice">ICE</button>
+          <button class="pill" data-val="hybrid">Hybrid</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="inp-notes">SITUATION</label>
+        <textarea class="form-input form-textarea" id="inp-notes" placeholder="Battery %, warning lights, road conditions…"></textarea>
+      </div>
+
+      <div class="form-group form-group--check">
+        <label class="check-label">
+          <input type="checkbox" id="chk-member" class="check-input"/>
+          <span class="check-box"><svg width="11" height="11"><use href="#ic-check"/></svg></span>
+          <span class="check-text">Include DREV Assist membership review</span>
+        </label>
+      </div>
+
+    </div>
+
+    <button class="sheet-cta" id="sheet-cta">
+      <span id="cta-label">REQUEST REVIEW</span>
+      <svg width="16" height="16"><use href="#ic-arrow-right"/></svg>
+    </button>
+
+    <p class="honesty-note">Review request — not a confirmed job or guaranteed ETA.</p>
+
+  </div>
+</section>
+
+<!-- Confirmation overlay -->
+<div class="confirm-overlay hidden" id="confirm-overlay">
+  <div class="confirm-card">
+    <div class="confirm-ring">
+      <svg width="26" height="26"><use href="#ic-check"/></svg>
+    </div>
+    <div class="confirm-title">REQUEST SUBMITTED</div>
+    <div class="confirm-body">Your review request has been received. A dispatcher will evaluate and respond within the hour.</div>
+    <div class="confirm-ref" id="confirm-id">REQ-XXXXXXXX</div>
+    <div class="confirm-notice">Review request — not a confirmed job or guaranteed ETA.</div>
+    <button class="sheet-cta" id="confirm-close">TRACK STATUS</button>
+  </div>
+</div>
+
+<noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
+
+<script src="js/assist-app.js"></script>
+</body>
+</html>
