@@ -14,7 +14,7 @@ const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /* ── State ──────────────────────────────────────────────── */
 let map, geocoder;
 let pickupLng = CENTER[0], pickupLat = CENTER[1], pickupAddr = 'Charlotte, NC';
-let activeCategory = 'roadside', activeSvc = 'mobile-ev-charge';
+let activeCategory = 'roadside', activeSvc = 'mobile-ev-charge', activePowertrain = 'ev';
 let reverseSeq = 0, reverseCtrl = null;
 let satellite = false;
 let busy = false;
@@ -240,7 +240,12 @@ $('cat-toggle').addEventListener('click', e => {
   });
   $('sec-roadside').classList.toggle('hidden', activeCategory !== 'roadside');
   $('sec-home').classList.toggle('hidden', activeCategory !== 'home');
+  $('roadside-fields').classList.toggle('hidden', activeCategory !== 'roadside');
+  $('home-fields').classList.toggle('hidden', activeCategory !== 'home');
   $('mode-toggle').textContent = activeCategory === 'roadside' ? 'ROADSIDE' : 'HOME ENERGY';
+  $('inp-notes').placeholder = activeCategory === 'roadside'
+    ? 'Battery %, warning lights, road conditions…'
+    : 'Describe what you need — current setup, concerns, timeline…';
 
   /* Select first card in new category */
   const first = document.querySelector(`.svc-card[data-cat="${activeCategory}"]`);
@@ -250,6 +255,45 @@ $('cat-toggle').addEventListener('click', e => {
 $('mode-toggle').addEventListener('click', () => {
   const next = activeCategory === 'roadside' ? 'home' : 'roadside';
   document.querySelector(`.cat-btn[data-cat="${next}"]`)?.click();
+});
+
+/* ── Powertrain toggle ──────────────────────────────────── */
+$('pt-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('.pt-btn');
+  if (!btn || btn.dataset.pt === activePowertrain) return;
+  activePowertrain = btn.dataset.pt;
+  document.querySelectorAll('#pt-toggle .pt-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.pt === activePowertrain);
+    b.setAttribute('aria-pressed', String(b.dataset.pt === activePowertrain));
+  });
+  filterRoadside(activePowertrain);
+});
+
+function filterRoadside(pt) {
+  $('svc-grid-roadside').querySelectorAll('.svc-card').forEach(card => {
+    const only = card.dataset.ptOnly;
+    const dim = !!(only && only !== pt);
+    card.classList.toggle('pt-dimmed', dim);
+    card.disabled = dim;
+    if (dim) { card.classList.remove('active'); card.setAttribute('aria-pressed', 'false'); }
+  });
+  /* Re-select first available if current was dimmed */
+  if (!$('svc-grid-roadside').querySelector('.svc-card.active:not(:disabled)')) {
+    const first = $('svc-grid-roadside').querySelector('.svc-card:not(:disabled)');
+    if (first) selectCard(first);
+  }
+}
+
+/* Home energy pill groups */
+['pill-property', 'pill-panel', 'pill-existing'].forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('click', e => {
+    const btn = e.target.closest('.pill');
+    if (!btn) return;
+    el.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
 });
 
 /* ── Service selection ──────────────────────────────────── */
@@ -275,12 +319,88 @@ function selectCard(card) {
 }
 
 /* ── Pill group (powertrain) ────────────────────────────── */
-$('pill-powertrain').addEventListener('click', e => {
-  const btn = e.target.closest('.pill');
+$('pt-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('.pt-btn');
   if (!btn) return;
-  document.querySelectorAll('#pill-powertrain .pill').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#pt-toggle .pt-btn').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+  });
   btn.classList.add('active');
+  btn.setAttribute('aria-pressed', 'true');
 });
+
+/* ── Profile modal ──────────────────────────────────────── */
+$('profile-btn').addEventListener('click', () => {
+  $('profile-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+});
+
+function closeProfile() {
+  $('profile-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+$('profile-close').addEventListener('click', closeProfile);
+$('profile-backdrop').addEventListener('click', closeProfile);
+
+$('btn-track').addEventListener('click', async () => {
+  const id = $('inp-track').value.trim();
+  if (!id) return;
+  const result = $('track-result');
+  result.textContent = 'Checking…';
+  result.className = 'track-result track-loading';
+  try {
+    const res = await fetch(`/api/assist/status/${encodeURIComponent(id)}`);
+    if (res.ok) {
+      const d = await res.json();
+      const r = d.request;
+      result.innerHTML = `<span class="track-svc">${r.serviceType.replace(/-/g,' ')}</span> — <span class="track-status ts-${r.status}">${r.status.toUpperCase()}</span><br>
+        <span style="font-size:12px;color:var(--text-2)">Submitted ${new Date(r.requestedAt).toLocaleDateString()}</span>`;
+      result.className = 'track-result track-ok';
+    } else {
+      result.textContent = 'Request not found. Check the ID.';
+      result.className = 'track-result track-err';
+    }
+  } catch {
+    result.textContent = 'Could not reach server.';
+    result.className = 'track-result track-err';
+  }
+});
+$('inp-track').addEventListener('keypress', e => { if (e.key === 'Enter') $('btn-track').click(); });
+
+window.subscribePlan = async function(plan) {
+  const btn = $('btn-plan-' + plan);
+  const note = $('plan-note');
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.textContent = 'LOADING…';
+  note.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/assist/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan }),
+    });
+    const data = await res.json();
+
+    if (data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+
+    const msg = data.error?.message || 'Could not start checkout.';
+    note.textContent = msg;
+    note.classList.remove('hidden');
+  } catch {
+    note.textContent = 'Network error — please try again.';
+    note.classList.remove('hidden');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'SUBSCRIBE';
+};
 
 /* ── FABs ───────────────────────────────────────────────── */
 $('locate-btn').addEventListener('click', () => {
@@ -329,15 +449,24 @@ async function submitRequest() {
   cta.disabled = true;
   label.textContent = 'SUBMITTING…';
 
+  const isHome = activeCategory === 'home';
+  const homeMeta = isHome ? [
+    'Property: ' + (document.querySelector('#pill-property .pill.active')?.dataset.val || 'house'),
+    'Panel: '    + (document.querySelector('#pill-panel .pill.active')?.dataset.val || 'unknown'),
+    'Existing: ' + (document.querySelector('#pill-existing .pill.active')?.dataset.val || 'none'),
+  ].join(' | ') : '';
+  const baseNotes = $('inp-notes').value.trim();
   const payload = {
     category:          activeCategory,
     serviceType:       activeSvc,
     locationLabel:     pickupAddr,
     locationLatitude:  pickupLat,
     locationLongitude: pickupLng,
-    powertrain:        document.querySelector('#pill-powertrain .pill.active')?.dataset.val || '',
-    vehicle:           $('inp-vehicle').value.trim(),
-    notes:             $('inp-notes').value.trim(),
+    powertrain:        isHome ? '' : activePowertrain,
+    vehicle:           isHome
+      ? (document.querySelector('#pill-property .pill.active')?.dataset.val || '')
+      : $('inp-vehicle').value.trim(),
+    notes:             isHome ? (homeMeta + (baseNotes ? ' — ' + baseNotes : '')) : baseNotes,
     memberPlanRequested: $('chk-member').checked,
   };
 
@@ -389,6 +518,35 @@ $('confirm-close').addEventListener('click', () => {
   $('cta-label').textContent = 'REQUEST REVIEW';
 });
 
+/* ── Checkout return handler ────────────────────────────── */
+function checkCheckoutReturn() {
+  const p = new URLSearchParams(location.search);
+  const status = p.get('assist_checkout');
+  if (!status) return;
+  history.replaceState({}, '', location.pathname);
+  if (status === 'success') {
+    const plan = p.get('plan') || 'membership';
+    showBanner(`Your DREV Assist ${plan.toUpperCase()} membership is active. Welcome!`, 'success');
+    $('profile-modal').classList.remove('hidden');
+  }
+}
+
+function showBanner(msg, type = 'info') {
+  let b = $('assist-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'assist-banner';
+    b.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:.05em;pointer-events:none;transition:opacity .4s';
+    document.body.appendChild(b);
+  }
+  b.textContent = msg;
+  b.style.background = type === 'success' ? '#0af0a0' : '#1ad4ff';
+  b.style.color = '#03080f';
+  b.style.opacity = '1';
+  clearTimeout(b._t);
+  b._t = setTimeout(() => { b.style.opacity = '0'; }, 5000);
+}
+
 /* ── Boot ───────────────────────────────────────────────── */
 window.addEventListener('load', async () => {
   if (!TOKEN) {
@@ -401,4 +559,5 @@ window.addEventListener('load', async () => {
   initGeocoder();
   positionPin();
   snapTo('mid', false);
+  checkCheckoutReturn();
 });

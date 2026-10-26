@@ -1,3 +1,8 @@
 name = "drev-assist"
 compatibility_date = "2024-09-23"
 pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "ASSIST_DB"
+database_name = "drev-assist-db"
+database_id = "f554052e-df16-417b-acda-6fd9ef1a1244"

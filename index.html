@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#03080f"/>
+<!-- content is injected at the edge by functions/_middleware.js from MAPBOX_TOKEN -->
 <meta name="mapbox-token" content=""/>
 <title>DREV Assist</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -116,9 +117,19 @@
 
     <!-- Roadside grid -->
     <div class="svc-section" id="sec-roadside">
+      <div class="pt-toggle" id="pt-toggle">
+        <button class="pt-btn active" data-pt="ev" aria-pressed="true">
+          <svg width="13" height="13"><use href="#ic-bolt"/></svg>
+          EV / PHEV
+        </button>
+        <button class="pt-btn" data-pt="ice" aria-pressed="false">
+          <svg width="13" height="13"><use href="#ic-fuel"/></svg>
+          Gas / Hybrid
+        </button>
+      </div>
       <div class="svc-grid" id="svc-grid-roadside">
 
-        <button class="svc-card active" data-svc="mobile-ev-charge" data-cat="roadside">
+        <button class="svc-card active" data-svc="mobile-ev-charge" data-cat="roadside" data-pt-only="ev">
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-bolt"/></svg></div>
           <div class="svc-name">EV Charge</div>
         </button>
@@ -143,7 +154,7 @@
           <div class="svc-name">Lockout</div>
         </button>
 
-        <button class="svc-card" data-svc="fuel-delivery" data-cat="roadside">
+        <button class="svc-card" data-svc="fuel-delivery" data-cat="roadside" data-pt-only="ice">
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-fuel"/></svg></div>
           <div class="svc-name">Fuel</div>
         </button>
@@ -209,18 +220,41 @@
     <!-- Form -->
     <div class="req-form" id="req-form">
 
-      <div class="form-group">
-        <label class="form-label" for="inp-vehicle">VEHICLE</label>
-        <input class="form-input" id="inp-vehicle" type="text" placeholder="Year Make Model" autocomplete="off"/>
+      <!-- Roadside-specific fields -->
+      <div id="roadside-fields">
+        <div class="form-group">
+          <label class="form-label" for="inp-vehicle">VEHICLE</label>
+          <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off"/>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">POWERTRAIN</label>
-        <div class="pill-group" id="pill-powertrain">
-          <button class="pill active" data-val="bev">BEV</button>
-          <button class="pill" data-val="phev">PHEV</button>
-          <button class="pill" data-val="ice">ICE</button>
-          <button class="pill" data-val="hybrid">Hybrid</button>
+      <!-- Home energy fields -->
+      <div id="home-fields" class="hidden">
+        <div class="form-group">
+          <label class="form-label">PROPERTY TYPE</label>
+          <div class="pill-group" id="pill-property">
+            <button class="pill active" data-val="house">House</button>
+            <button class="pill" data-val="apartment">Apartment</button>
+            <button class="pill" data-val="condo">Condo</button>
+            <button class="pill" data-val="commercial">Commercial</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">PANEL SIZE</label>
+          <div class="pill-group" id="pill-panel">
+            <button class="pill" data-val="unknown">Unknown</button>
+            <button class="pill" data-val="100a">100A</button>
+            <button class="pill active" data-val="200a">200A</button>
+            <button class="pill" data-val="200a+">200A+</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">EXISTING CHARGER</label>
+          <div class="pill-group" id="pill-existing">
+            <button class="pill active" data-val="none">None</button>
+            <button class="pill" data-val="level1">Level 1 (120V)</button>
+            <button class="pill" data-val="level2">Level 2 (240V)</button>
+          </div>
         </div>
       </div>
 
@@ -260,6 +294,74 @@
     <div class="confirm-ref" id="confirm-id">REQ-XXXXXXXX</div>
     <div class="confirm-notice">Review request — not a confirmed job or guaranteed ETA.</div>
     <button class="sheet-cta" id="confirm-close">TRACK STATUS</button>
+  </div>
+</div>
+
+<!-- Profile / account modal -->
+<div class="profile-modal hidden" id="profile-modal">
+  <div class="profile-backdrop" id="profile-backdrop"></div>
+  <div class="profile-sheet" role="dialog" aria-modal="true" aria-label="Account">
+
+    <div class="profile-hdr">
+      <div class="profile-hdr-title">ACCOUNT</div>
+      <button class="profile-close-btn" id="profile-close" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Track request -->
+    <div class="profile-sect">
+      <div class="profile-sect-label">TRACK REQUEST</div>
+      <p class="profile-body-text">Enter your reference ID to check your request status.</p>
+      <div class="profile-track-row">
+        <input class="form-input profile-track-input" id="inp-track" type="text" placeholder="Paste your request UUID" autocomplete="off" spellcheck="false"/>
+        <button class="track-go-btn" id="btn-track">CHECK</button>
+      </div>
+      <div class="track-result hidden" id="track-result"></div>
+    </div>
+
+    <div class="profile-rule"></div>
+
+    <!-- Membership plans -->
+    <div class="profile-sect">
+      <div class="profile-sect-label">MEMBERSHIP PLANS</div>
+      <div class="plan-row">
+
+        <div class="plan-card">
+          <div class="plan-name">ESSENTIAL</div>
+          <div class="plan-price">$8<span class="plan-per">/mo</span></div>
+          <div class="plan-perks">
+            <div class="plan-perk">2 roadside events/yr</div>
+            <div class="plan-perk">Priority dispatch</div>
+          </div>
+          <button class="plan-btn plan-btn--ghost" id="btn-plan-essential" onclick="subscribePlan('essential')">SUBSCRIBE</button>
+        </div>
+
+        <div class="plan-card plan-card--hi">
+          <div class="plan-popular">POPULAR</div>
+          <div class="plan-name">FLEX</div>
+          <div class="plan-price">$18<span class="plan-per">/mo</span></div>
+          <div class="plan-perks">
+            <div class="plan-perk">Unlimited roadside</div>
+            <div class="plan-perk">Home energy consult</div>
+            <div class="plan-perk">V2H planning incl.</div>
+          </div>
+          <button class="plan-btn" id="btn-plan-flex" onclick="subscribePlan('flex')">SUBSCRIBE</button>
+        </div>
+
+      </div>
+      <p class="profile-body-text plan-note hidden" id="plan-note" style="margin-top:10px;font-size:12px"></p>
+    </div>
+
+    <div class="profile-rule"></div>
+
+    <!-- Contact -->
+    <div class="profile-sect profile-contact-sect">
+      <a class="contact-link" href="mailto:assist@drev.space">assist@drev.space</a>
+      <span class="contact-sep">·</span>
+      <span class="contact-link">704-456-0000</span>
+    </div>
+
   </div>
 </div>
 
