@@ -20,6 +20,64 @@
 </head>
 <body>
 
+<!-- ═══ INTRO SPLASH ═══ -->
+<div id="intro-splash" aria-hidden="true">
+  <div class="intro-bg"></div>
+  <div class="intro-road-lines">
+    <div class="road-line"></div><div class="road-line"></div><div class="road-line"></div>
+    <div class="road-line"></div><div class="road-line"></div>
+  </div>
+  <div class="intro-content">
+    <img class="intro-logo" src="assets/logo-drev-assist.png" alt="DREV Assist" draggable="false"/>
+    <p class="intro-tagline">ANY ROAD &nbsp;·&nbsp; ANYTIME &nbsp;·&nbsp; ANY VEHICLE</p>
+    <div class="intro-services">
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-tow"/></svg><span>Towing</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-bolt"/></svg><span>EV Charging</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-battery"/></svg><span>Jump Start</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-tire"/></svg><span>Tire Service</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-key"/></svg><span>Lockouts</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-fuel"/></svg><span>Fuel Delivery</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-home-charge"/></svg><span>Home Energy</span></div>
+      <div class="isvc"><svg width="28" height="28"><use href="#ic-alert"/></svg><span>Accident Recovery</span></div>
+    </div>
+    <div class="intro-loader"><div class="intro-loader-bar"></div></div>
+  </div>
+</div>
+
+<style>
+/* ── Intro splash ── */
+#intro-splash{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#020a18;transition:opacity .6s ease,visibility .6s ease}
+#intro-splash.done{opacity:0;visibility:hidden;pointer-events:none}
+.intro-bg{position:absolute;inset:0;background:radial-gradient(ellipse 120% 80% at 50% 60%,#0a2048 0%,#020a18 70%)}
+/* animated road lines */
+.intro-road-lines{position:absolute;inset:0;overflow:hidden;opacity:.18}
+.road-line{position:absolute;left:50%;width:2px;background:linear-gradient(to bottom,transparent,#0052CC 40%,#0052CC 60%,transparent);height:60%;top:20%;animation:roadscroll 1.4s linear infinite;transform-origin:top center}
+.road-line:nth-child(1){transform:translateX(-180px) rotate(-8deg);animation-delay:0s}
+.road-line:nth-child(2){transform:translateX(-90px) rotate(-3deg);animation-delay:.28s}
+.road-line:nth-child(3){transform:translateX(0px) rotate(0deg);animation-delay:.56s}
+.road-line:nth-child(4){transform:translateX(90px) rotate(3deg);animation-delay:.84s}
+.road-line:nth-child(5){transform:translateX(180px) rotate(8deg);animation-delay:1.12s}
+@keyframes roadscroll{0%{opacity:0;transform-origin:top center;top:-20%}40%{opacity:1}100%{opacity:0;top:100%}}
+
+/* content */
+.intro-content{position:relative;display:flex;flex-direction:column;align-items:center;gap:20px;padding:0 24px}
+.intro-logo{width:min(380px,85vw);height:auto;opacity:0;transform:scale(.88) translateY(16px);animation:logoin .8s cubic-bezier(.22,1,.36,1) .3s forwards;filter:drop-shadow(0 0 40px rgba(0,82,204,.55))}
+@keyframes logoin{to{opacity:1;transform:scale(1) translateY(0)}}
+
+.intro-tagline{font-family:'Orbitron',sans-serif;font-size:clamp(.65rem,.9vw,.8rem);letter-spacing:.25em;color:#C0C6D4;opacity:0;animation:fadein .6s ease .95s forwards;text-align:center}
+@keyframes fadein{to{opacity:1}}
+
+/* service icons */
+.intro-services{display:flex;flex-wrap:wrap;justify-content:center;gap:16px 20px;max-width:460px;opacity:0;animation:fadein .7s ease 1.2s forwards}
+.isvc{display:flex;flex-direction:column;align-items:center;gap:6px;color:#7ab0e8;font-family:'Rajdhani',sans-serif;font-size:.68rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.isvc svg{background:rgba(0,82,204,.18);border:1px solid rgba(0,82,204,.3);border-radius:50%;padding:8px;width:44px;height:44px;box-sizing:content-box;transition:background .2s}
+
+/* loader bar */
+.intro-loader{width:min(280px,70vw);height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;opacity:0;animation:fadein .4s ease 1.5s forwards}
+.intro-loader-bar{height:100%;width:0;background:linear-gradient(90deg,#0052CC,#4d9fff);border-radius:2px;animation:load 1.8s cubic-bezier(.4,0,.2,1) 1.6s forwards}
+@keyframes load{0%{width:0}60%{width:70%}80%{width:88%}100%{width:100%}}
+</style>
+
 <!-- SVG icon library -->
 <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
   <symbol id="ic-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13H12L11 22L19.5 11H12L13 2Z"/></symbol>
@@ -420,5 +478,15 @@
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
 
 <script src="js/assist-app.js"></script>
+<script>
+(function(){
+  var splash=document.getElementById('intro-splash');
+  if(!splash)return;
+  // dismiss after loader animation completes (1.6s delay + 1.8s duration = 3.4s) + short hold
+  var t=setTimeout(function(){splash.classList.add('done');},3600);
+  // also dismiss immediately if user taps/clicks
+  splash.addEventListener('click',function(){clearTimeout(t);splash.classList.add('done');},{once:true});
+})();
+</script>
 </body>
 </html>
