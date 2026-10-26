@@ -1,7 +1,7 @@
 /* POST /api/assist/checkout — create a Stripe Checkout Session for membership.
    No card PAN, CVC, or Stripe secret key is ever sent to the browser.
    Only a verified raw-body Stripe webhook may activate membership. */
-import { CORS, json, err } from './_shared.js';
+import { json, err, handleOptions, isEmail } from './_shared.js';
 
 const PLANS = {
   essential: {
@@ -18,20 +18,24 @@ const PLANS = {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-  if (request.method !== 'POST') return err('Method not allowed.', 'METHOD_NOT_ALLOWED', 405);
+  const opts = { request, env };
+  if (request.method === 'OPTIONS') return handleOptions(request, env);
+  if (request.method !== 'POST') return err('Method not allowed.', 'METHOD_NOT_ALLOWED', 405, opts);
 
   const stripeSecret = env?.STRIPE_SECRET_KEY;
   if (!stripeSecret) {
-    return err('Payment processing is not yet configured.', 'PAYMENT_NOT_CONFIGURED', 503);
+    return err('Payment processing is not yet configured.', 'PAYMENT_NOT_CONFIGURED', 503, opts);
   }
 
   let body;
-  try { body = await request.json(); } catch { return err('Invalid JSON body.', 'BAD_REQUEST', 400); }
+  try { body = await request.json(); } catch { return err('Invalid JSON body.', 'BAD_REQUEST', 400, opts); }
 
   const planKey = String(body?.plan || '').toLowerCase();
   const plan = PLANS[planKey];
-  if (!plan) return err('Unknown plan. Use "essential" or "flex".', 'INVALID_PLAN', 400);
+  if (!plan) return err('Unknown plan. Use "essential" or "flex".', 'INVALID_PLAN', 400, opts);
+  if (body.email !== undefined && body.email !== '' && !isEmail(String(body.email).trim())) {
+    return err('Email address looks invalid.', 'INVALID_EMAIL', 400, opts);
+  }
 
   const origin = new URL(request.url).origin;
   const successUrl = `${origin}/?assist_checkout=success&plan=${encodeURIComponent(planKey)}`;
@@ -64,8 +68,8 @@ export async function onRequest(context) {
 
   const session = await res.json();
   if (!res.ok || !session.url) {
-    return err(session.error?.message || 'Stripe did not return a checkout URL.', 'STRIPE_ERROR', 502);
+    return err(session.error?.message || 'Stripe did not return a checkout URL.', 'STRIPE_ERROR', 502, opts);
   }
 
-  return json({ checkoutUrl: session.url, sessionId: session.id });
+  return json({ checkoutUrl: session.url, sessionId: session.id }, 200, opts);
 }

@@ -1,15 +1,52 @@
 /* =========================================================
-   DREV Assist — Production app JS
+   DREV Assist — customer app
    Real Mapbox GL JS · Charlotte NC · Sheet physics
+
+   Honesty rules enforced here:
+   - The green "submitted" state appears ONLY after the server confirms
+     the request was stored (HTTP 201). Anything else is shown as
+     NOT SENT with a clearly-labelled local reference — never as success.
+   - What is sent is a frozen snapshot shown in the review dialog first;
+     the form is never re-read mid-send.
+   - Retries reuse the same Idempotency-Key, so a flaky connection
+     cannot create duplicate requests.
    ========================================================= */
 'use strict';
 
 let TOKEN = document.querySelector('meta[name="mapbox-token"]')?.content || '';
 const CENTER = [-80.843, 35.227];
 const NC_BBOX = [-84.3, 33.8, -75.4, 36.6];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const $ = id => document.getElementById(id);
 const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* Fallback copy — refreshed from GET /api/assist/services when reachable,
+   so guidance never drifts from the server-side catalogue. */
+let SERVICE_GUIDANCE = {
+  'mobile-ev-charge': 'Stay with the vehicle if safe. Note your battery % and nearest cross-street.',
+  'jump-start': 'Turn off lights and accessories. Note any clicking or dashboard warnings.',
+  'flat-tire': 'Pull fully off the roadway if possible. Tell us if you have a spare and which tire is flat.',
+  'tow-coordination': 'Tell us where the vehicle needs to go and whether it can roll / be put in neutral.',
+  'lockout': 'Have photo ID ready — the provider must verify you own or rent the vehicle.',
+  'fuel-delivery': 'Confirm your fuel type (regular / premium / diesel) and stay in a safe spot.',
+  'collision-incident': 'Not emergency services — call 911 for injuries. Move to safety and exchange info if safe to do so.',
+  'other-roadside': 'Describe the problem in the Situation box so a dispatcher can route it correctly.',
+  'home-charger-install': 'Photos of your panel and parking spot help. Note the distance from panel to vehicle.',
+  'home-charger-repair': 'Note the charger brand/model and any error lights or breaker trips.',
+  'v2h-planning': 'Tell us your vehicle model and what you want powered during an outage.',
+  'panel-battery-review': 'A photo of your panel label (amperage, open slots) speeds up the review.',
+  'outage-readiness': 'List the loads that matter most (medical, refrigeration, heating) and outage history.',
+  'other-home': 'Describe your goal and current setup in the Situation box.',
+};
+const SERVICE_LABELS = {
+  'mobile-ev-charge': 'Mobile EV Charge', 'jump-start': 'Jump Start', 'flat-tire': 'Flat Tire',
+  'tow-coordination': 'Tow Coordination', 'lockout': 'Lockout', 'fuel-delivery': 'Fuel Delivery',
+  'collision-incident': 'Collision Incident', 'other-roadside': 'Other Roadside',
+  'home-charger-install': 'Charger Install', 'home-charger-repair': 'Charger Repair',
+  'v2h-planning': 'V2H Planning', 'panel-battery-review': 'Panel / Battery Review',
+  'outage-readiness': 'Outage Readiness', 'other-home': 'Other Home Energy',
+};
 
 /* ── State ──────────────────────────────────────────────── */
 let map, geocoder;
@@ -18,6 +55,9 @@ let activeCategory = 'roadside', activeSvc = 'mobile-ev-charge', activePowertrai
 let reverseSeq = 0, reverseCtrl = null;
 let satellite = false;
 let busy = false;
+let pendingSnapshot = null;   // frozen review snapshot awaiting / retrying a send
+let trackedId = null;         // request id currently shown in the tracker
+let lastFocused = null;
 
 /* ── Map ────────────────────────────────────────────────── */
 function initMap() {
@@ -52,11 +92,11 @@ function initMap() {
         paint: {
           'fill-extrusion-color': '#0a1e32',
           'fill-extrusion-height': ['coalesce', ['get', 'height'], 0],
-          'fill-extrusion-base':   ['coalesce', ['get', 'min_height'], 0],
+          'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
           'fill-extrusion-opacity': 0.88,
         },
       }, labelLayer?.id);
-    } catch (_) {}
+    } catch (_) { /* 3D buildings are decorative */ }
 
     reverseGeocode(CENTER[0], CENTER[1]);
   });
@@ -70,8 +110,15 @@ function initMap() {
     $('pickup-pin').classList.remove('dragging');
     const c = map.getCenter();
     pickupLng = c.lng; pickupLat = c.lat;
+    invalidateLocationConfirmation();
     reverseGeocode(c.lng, c.lat);
   });
+}
+
+/* Moving the pin invalidates the "this is where help should come" check. */
+function invalidateLocationConfirmation() {
+  const chk = $('chk-location');
+  if (chk) chk.checked = false;
 }
 
 /* ── Geocoder ───────────────────────────────────────────── */
@@ -79,7 +126,7 @@ function initGeocoder() {
   if (!window.MapboxGeocoder) return;
   geocoder = new MapboxGeocoder({
     accessToken: TOKEN,
-    mapboxgl: mapboxgl,
+    mapboxgl,
     countries: 'us',
     bbox: NC_BBOX,
     proximity: { longitude: CENTER[0], latitude: CENTER[1] },
@@ -92,6 +139,7 @@ function initGeocoder() {
     const [lng, lat] = e.result.center;
     pickupLng = lng; pickupLat = lat;
     pickupAddr = e.result.place_name;
+    invalidateLocationConfirmation();
     setAddrText(pickupAddr);
     setAddrBadge('SET', true);
   });
@@ -103,7 +151,7 @@ async function reverseGeocode(lng, lat) {
   reverseCtrl?.abort();
   reverseCtrl = new AbortController();
   try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${TOKEN}&country=us&limit=1`;
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${encodeURIComponent(TOKEN)}&country=us&limit=1`;
     const r = await fetch(url, { signal: reverseCtrl.signal });
     if (!r.ok) throw new Error();
     const d = await r.json();
@@ -129,25 +177,24 @@ function setAddrBadge(label, ok) {
 /* ── Pin positioning ────────────────────────────────────── */
 function positionPin() {
   if (!map) return;
-  const canvas = map.getCanvas();
-  const r = canvas.getBoundingClientRect();
+  const r = map.getCanvas().getBoundingClientRect();
   const pin = $('pickup-pin');
-  pin.style.left = (r.left + r.width  / 2) + 'px';
-  pin.style.top  = (r.top  + r.height / 2) + 'px';
+  pin.style.left = (r.left + r.width / 2) + 'px';
+  pin.style.top = (r.top + r.height / 2) + 'px';
 }
 window.addEventListener('resize', positionPin);
 
 /* ── Bottom sheet physics ───────────────────────────────── */
-const sheet     = $('sheet');
+const sheet = $('sheet');
 const handleRow = $('sheet-handle-row');
 
 const SNAP_PEEK = 72;
-const SNAP_MID  = () => Math.min(360, window.innerHeight * 0.55);
+const SNAP_MID = () => Math.min(360, window.innerHeight * 0.55);
 const SNAP_FULL = () => window.innerHeight * 0.92;
 
-let currentSnap  = 'mid';
-let dragging     = false;
-let dragStartY   = 0, dragStartH = 0;
+let currentSnap = 'mid';
+let dragging = false;
+let dragStartY = 0, dragStartH = 0;
 let velY = 0, lastY = 0, lastT = 0;
 
 function snapTo(name, animate = true) {
@@ -161,7 +208,6 @@ function snapTo(name, animate = true) {
   const h = name === 'full' ? SNAP_FULL() : name === 'peek' ? SNAP_PEEK : SNAP_MID();
   sheet.style.height = h + 'px';
 
-  /* Lock map when full */
   if (map) {
     const lock = name === 'full';
     map.scrollZoom[lock ? 'disable' : 'enable']();
@@ -169,19 +215,13 @@ function snapTo(name, animate = true) {
     map.touchZoomRotate[lock ? 'disable' : 'enable']();
   }
 
-  /* Show/hide geocoder */
   $('geocoder-wrap').classList.toggle('visible', name !== 'peek');
-
-  /* Shift FABs above sheet */
-  const fabBottom = h + 24;
-  $('map-fabs').style.bottom = fabBottom + 'px';
+  $('map-fabs').style.bottom = (h + 24) + 'px';
 }
 
 handleRow.addEventListener('click', () => {
   if (dragging) return;
-  if (currentSnap === 'peek') snapTo('mid');
-  else if (currentSnap === 'mid') snapTo('full');
-  else snapTo('mid');
+  snapTo(currentSnap === 'peek' ? 'mid' : currentSnap === 'mid' ? 'full' : 'mid');
 });
 
 handleRow.addEventListener('pointerdown', e => {
@@ -196,32 +236,29 @@ handleRow.addEventListener('pointerdown', e => {
 handleRow.addEventListener('pointermove', e => {
   if (!dragging) return;
   const dy = dragStartY - e.clientY;
-  const h  = Math.max(SNAP_PEEK, Math.min(SNAP_FULL(), dragStartH + dy));
+  const h = Math.max(SNAP_PEEK, Math.min(SNAP_FULL(), dragStartH + dy));
   sheet.style.height = h + 'px';
   sheet.classList.remove('animate');
-  sheet.dataset.snap  = '';
+  sheet.dataset.snap = '';
 
   const now = Date.now();
   if (now > lastT) velY = (lastY - e.clientY) / (now - lastT) * 100;
   lastY = e.clientY; lastT = now;
 }, { passive: true });
 
-handleRow.addEventListener('pointerup', () => {
+function endDrag() {
   if (!dragging) return;
   dragging = false;
-  const h    = sheet.getBoundingClientRect().height;
-  const mid  = SNAP_MID();
+  const h = sheet.getBoundingClientRect().height;
+  const mid = SNAP_MID();
   const full = SNAP_FULL();
   let target = 'mid';
-  if      (velY > 22 || h > mid + (full - mid) * 0.55) target = 'full';
-  else if (velY < -22 || h < mid * 0.45)               target = 'peek';
+  if (velY > 22 || h > mid + (full - mid) * 0.55) target = 'full';
+  else if (velY < -22 || h < mid * 0.45) target = 'peek';
   snapTo(target);
-});
-
-handleRow.addEventListener('pointercancel', () => {
-  dragging = false;
-  snapTo(currentSnap);
-});
+}
+handleRow.addEventListener('pointerup', endDrag);
+handleRow.addEventListener('pointercancel', () => { dragging = false; snapTo(currentSnap); });
 
 $('sheet-addr-row').addEventListener('click', () => {
   if (currentSnap === 'peek') snapTo('mid');
@@ -246,8 +283,10 @@ $('cat-toggle').addEventListener('click', e => {
   $('inp-notes').placeholder = activeCategory === 'roadside'
     ? 'Battery %, warning lights, road conditions…'
     : 'Describe what you need — current setup, concerns, timeline…';
+  /* Required markers differ: home consults accept email instead of phone. */
+  document.querySelector('label[for="inp-name"]').textContent = activeCategory === 'roadside' ? 'YOUR NAME *' : 'YOUR NAME';
+  document.querySelector('label[for="inp-phone"]').textContent = activeCategory === 'roadside' ? 'PHONE *' : 'PHONE';
 
-  /* Select first card in new category */
   const first = document.querySelector(`.svc-card[data-cat="${activeCategory}"]`);
   if (first) selectCard(first);
 });
@@ -257,14 +296,15 @@ $('mode-toggle').addEventListener('click', () => {
   document.querySelector(`.cat-btn[data-cat="${next}"]`)?.click();
 });
 
-/* ── Powertrain toggle ──────────────────────────────────── */
+/* ── Powertrain toggle (single handler) ─────────────────── */
 $('pt-toggle').addEventListener('click', e => {
   const btn = e.target.closest('.pt-btn');
   if (!btn || btn.dataset.pt === activePowertrain) return;
   activePowertrain = btn.dataset.pt;
   document.querySelectorAll('#pt-toggle .pt-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.pt === activePowertrain);
-    b.setAttribute('aria-pressed', String(b.dataset.pt === activePowertrain));
+    const on = b.dataset.pt === activePowertrain;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
   });
   filterRoadside(activePowertrain);
 });
@@ -277,7 +317,6 @@ function filterRoadside(pt) {
     card.disabled = dim;
     if (dim) { card.classList.remove('active'); card.setAttribute('aria-pressed', 'false'); }
   });
-  /* Re-select first available if current was dimmed */
   if (!$('svc-grid-roadside').querySelector('.svc-card.active:not(:disabled)')) {
     const first = $('svc-grid-roadside').querySelector('.svc-card:not(:disabled)');
     if (first) selectCard(first);
@@ -291,8 +330,9 @@ function filterRoadside(pt) {
   el.addEventListener('click', e => {
     const btn = e.target.closest('.pill');
     if (!btn) return;
-    el.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+    el.querySelectorAll('.pill').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
     btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
   });
 });
 
@@ -300,7 +340,7 @@ function filterRoadside(pt) {
 document.querySelectorAll('.svc-grid').forEach(grid => {
   grid.addEventListener('click', e => {
     const card = e.target.closest('.svc-card');
-    if (!card) return;
+    if (!card || card.disabled) return;
     selectCard(card);
     if (currentSnap !== 'full') snapTo('full');
   });
@@ -316,99 +356,149 @@ function selectCard(card) {
   card.setAttribute('aria-pressed', 'true');
   activeSvc = card.dataset.svc;
   $('collision-block').classList.toggle('hidden', activeSvc !== 'collision-incident');
+  $('svc-guidance').textContent = SERVICE_GUIDANCE[activeSvc] || '';
 }
 
-/* ── Pill group (powertrain) ────────────────────────────── */
-$('pt-toggle').addEventListener('click', e => {
-  const btn = e.target.closest('.pt-btn');
-  if (!btn) return;
-  document.querySelectorAll('#pt-toggle .pt-btn').forEach(b => {
-    b.classList.remove('active');
-    b.setAttribute('aria-pressed', 'false');
-  });
-  btn.classList.add('active');
-  btn.setAttribute('aria-pressed', 'true');
+/* ── Notes counter ──────────────────────────────────────── */
+$('inp-notes').addEventListener('input', () => {
+  $('notes-count').textContent = $('inp-notes').value.length;
+});
+
+/* ── Overlay helpers (focus in / focus back) ────────────── */
+function openOverlay(el) {
+  lastFocused = document.activeElement;
+  el.classList.remove('hidden');
+  el.querySelector('button:not([disabled])')?.focus();
+}
+function closeOverlay(el) {
+  el.classList.add('hidden');
+  if (lastFocused?.focus) lastFocused.focus();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || busy) return;
+  if (!$('review-overlay').classList.contains('hidden')) closeOverlay($('review-overlay'));
+  else if (!$('profile-modal').classList.contains('hidden')) closeProfile();
+  else if (!$('confirm-overlay').classList.contains('hidden')) closeOverlay($('confirm-overlay'));
 });
 
 /* ── Profile modal ──────────────────────────────────────── */
 $('profile-btn').addEventListener('click', () => {
-  $('profile-modal').classList.remove('hidden');
+  openOverlay($('profile-modal'));
   document.body.style.overflow = 'hidden';
+  const last = localStorage.getItem('drev-last-request');
+  if (last && !$('inp-track').value) $('inp-track').value = last;
 });
 
 function closeProfile() {
   $('profile-modal').classList.add('hidden');
   document.body.style.overflow = '';
+  if (lastFocused?.focus) lastFocused.focus();
 }
 $('profile-close').addEventListener('click', closeProfile);
 $('profile-backdrop').addEventListener('click', closeProfile);
 
-$('btn-track').addEventListener('click', async () => {
+/* ── Tracking (DOM built with textContent — no innerHTML) ── */
+async function checkStatus() {
   const id = $('inp-track').value.trim();
-  if (!id) return;
   const result = $('track-result');
-  result.textContent = 'Checking…';
-  result.className = 'track-result track-loading';
+  const cancelBtn = $('btn-cancel-req');
+  cancelBtn.classList.add('hidden');
+  trackedId = null;
+
+  const show = (text, cls) => {
+    result.replaceChildren();
+    result.textContent = text;
+    result.className = 'track-result ' + cls;
+    result.classList.remove('hidden');
+  };
+
+  if (!UUID_RE.test(id)) { show('Enter the full reference ID from your confirmation (it looks like a long code with dashes).', 'track-err'); return; }
+  show('Checking…', 'track-loading');
   try {
-    const res = await fetch(`/api/assist/status/${encodeURIComponent(id)}`);
-    if (res.ok) {
-      const d = await res.json();
-      const r = d.request;
-      result.innerHTML = `<span class="track-svc">${r.serviceType.replace(/-/g,' ')}</span> — <span class="track-status ts-${r.status}">${r.status.toUpperCase()}</span><br>
-        <span style="font-size:12px;color:var(--text-2)">Submitted ${new Date(r.requestedAt).toLocaleDateString()}</span>`;
-      result.className = 'track-result track-ok';
-    } else {
-      result.textContent = 'Request not found. Check the ID.';
-      result.className = 'track-result track-err';
-    }
+    const res = await fetch(`/api/assist/status/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
+    if (!res.ok) { show(res.status === 404 ? 'Request not found. Check the ID.' : 'Could not check status right now.', 'track-err'); return; }
+    const r = (await res.json()).request;
+    trackedId = r.id;
+    result.replaceChildren();
+    const svc = document.createElement('span');
+    svc.className = 'track-svc';
+    svc.textContent = SERVICE_LABELS[r.serviceType] || r.serviceType;
+    const st = document.createElement('span');
+    st.className = `track-status ts-${r.status}`;
+    st.textContent = r.status.toUpperCase();
+    const meta = document.createElement('span');
+    meta.style.cssText = 'font-size:12px;color:var(--text-2)';
+    meta.textContent = `Submitted ${new Date(r.requestedAt).toLocaleDateString()}`
+      + (r.providerLabel ? ` · Provider: ${r.providerLabel}` : '')
+      + (r.scheduledWindow ? ` · Window: ${r.scheduledWindow}` : '');
+    result.append(svc, document.createTextNode(' — '), st, document.createElement('br'), meta);
+    result.className = 'track-result track-ok';
+    result.classList.remove('hidden');
+    if (r.cancellable) cancelBtn.classList.remove('hidden');
   } catch {
-    result.textContent = 'Could not reach server.';
+    show('Could not reach the server. Check your connection.', 'track-err');
+  }
+}
+$('btn-track').addEventListener('click', checkStatus);
+$('inp-track').addEventListener('keypress', e => { if (e.key === 'Enter') checkStatus(); });
+
+$('btn-cancel-req').addEventListener('click', async () => {
+  if (!trackedId || busy) return;
+  if (!confirm('Cancel this request? A dispatcher will stop working on it.')) return;
+  busy = true;
+  try {
+    const res = await fetch(`/api/assist/status/${encodeURIComponent(trackedId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel' }),
+    });
+    if (!res.ok) throw new Error();
+    await checkStatus();
+  } catch {
+    const result = $('track-result');
+    result.textContent = 'Could not cancel right now — please call dispatch.';
     result.className = 'track-result track-err';
   }
+  busy = false;
 });
-$('inp-track').addEventListener('keypress', e => { if (e.key === 'Enter') $('btn-track').click(); });
 
-window.subscribePlan = async function(plan) {
-  const btn = $('btn-plan-' + plan);
+/* ── Membership checkout (handlers bound here, no inline onclick) ── */
+document.querySelectorAll('[data-plan]').forEach(btn => {
+  btn.addEventListener('click', () => subscribePlan(btn.dataset.plan, btn));
+});
+
+async function subscribePlan(plan, btn) {
   const note = $('plan-note');
   if (!btn) return;
-
   btn.disabled = true;
   btn.textContent = 'LOADING…';
   note.classList.add('hidden');
-
   try {
     const res = await fetch('/api/assist/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan }),
     });
-    const data = await res.json();
-
-    if (data.checkoutUrl) {
-      window.location.href = data.checkoutUrl;
-      return;
-    }
-
-    const msg = data.error?.message || 'Could not start checkout.';
-    note.textContent = msg;
+    const data = await res.json().catch(() => ({}));
+    if (data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
+    note.textContent = data.error?.message || 'Could not start checkout.';
     note.classList.remove('hidden');
   } catch {
     note.textContent = 'Network error — please try again.';
     note.classList.remove('hidden');
   }
-
   btn.disabled = false;
   btn.textContent = 'SUBSCRIBE';
-};
+}
 
 /* ── FABs ───────────────────────────────────────────────── */
 $('locate-btn').addEventListener('click', () => {
   if (!navigator.geolocation) { map?.flyTo({ center: CENTER, zoom: 14, pitch: 58, bearing: -15, speed: 1.4 }); return; }
   navigator.geolocation.getCurrentPosition(
     pos => map?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 16, pitch: 58, bearing: -15, speed: 1.4 }),
-    ()  => map?.flyTo({ center: CENTER, zoom: 14, pitch: 58, bearing: -15, speed: 1.4 }),
-    { enableHighAccuracy: true, timeout: 10000 }
+    () => map?.flyTo({ center: CENTER, zoom: 14, pitch: 58, bearing: -15, speed: 1.4 }),
+    { enableHighAccuracy: true, timeout: 10000 },
   );
 });
 
@@ -433,89 +523,251 @@ $('satellite-btn').addEventListener('click', () => {
       }
     });
     if (!satellite) map.setLayoutProperty('drev-sat', 'visibility', 'none');
-  } catch (_) {}
+  } catch (_) { /* satellite is decorative */ }
 });
 
-/* ── Submit ─────────────────────────────────────────────── */
-$('sheet-cta').addEventListener('click', submitRequest);
+/* ── Validation + frozen review snapshot ────────────────── */
+function fetchWithTimeout(url, opts = {}, ms = 12000) {
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    return fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+  }
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
 
-async function submitRequest() {
-  if (busy) return;
-  if (!activeSvc) return;
+function showFormError(message, focusEl) {
+  const el = $('form-error');
+  el.textContent = message;
+  el.classList.remove('hidden');
+  document.querySelectorAll('.form-input.invalid').forEach(i => i.classList.remove('invalid'));
+  if (focusEl) { focusEl.classList.add('invalid'); focusEl.focus(); }
+  snapTo('full');
+}
+function clearFormError() {
+  $('form-error').classList.add('hidden');
+  document.querySelectorAll('.form-input.invalid').forEach(i => i.classList.remove('invalid'));
+}
 
-  busy = true;
-  const cta   = $('sheet-cta');
-  const label = $('cta-label');
-  cta.disabled = true;
-  label.textContent = 'SUBMITTING…';
-
+function validateAndSnapshot() {
+  clearFormError();
   const isHome = activeCategory === 'home';
-  const homeMeta = isHome ? [
-    'Property: ' + (document.querySelector('#pill-property .pill.active')?.dataset.val || 'house'),
-    'Panel: '    + (document.querySelector('#pill-panel .pill.active')?.dataset.val || 'unknown'),
-    'Existing: ' + (document.querySelector('#pill-existing .pill.active')?.dataset.val || 'none'),
-  ].join(' | ') : '';
-  const baseNotes = $('inp-notes').value.trim();
-  const payload = {
-    category:          activeCategory,
-    serviceType:       activeSvc,
-    locationLabel:     pickupAddr,
-    locationLatitude:  pickupLat,
-    locationLongitude: pickupLng,
-    powertrain:        isHome ? '' : activePowertrain,
-    vehicle:           isHome
-      ? (document.querySelector('#pill-property .pill.active')?.dataset.val || '')
-      : $('inp-vehicle').value.trim(),
-    notes:             isHome ? (homeMeta + (baseNotes ? ' — ' + baseNotes : '')) : baseNotes,
-    memberPlanRequested: $('chk-member').checked,
-  };
+  const name = $('inp-name').value.trim();
+  const phone = $('inp-phone').value.trim();
+  const email = $('inp-email').value.trim();
+  const vehicle = $('inp-vehicle').value.trim();
+  const notes = $('inp-notes').value.trim();
 
-  let refId = null;
-
-  try {
-    const res = await fetch('/api/assist/requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(12000),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      refId = data.request?.id || data.requestId || data.id;
-    } else if (res.status === 503) {
-      refId = localRef();
-    } else {
-      throw new Error(`HTTP ${res.status}`);
-    }
-  } catch (err) {
-    refId = localRef();
-    try {
-      sessionStorage.setItem('drev-assist-pending', JSON.stringify({
-        id: refId, at: new Date().toISOString(), category: payload.category, svc: payload.serviceType,
-      }));
-    } catch (_) {}
+  if (!activeSvc) { showFormError('Choose a service first.'); return null; }
+  if (!isHome && !name) { showFormError('Please enter your name so the dispatcher can reach you.', $('inp-name')); return null; }
+  if (!isHome && !phone) { showFormError('Please enter a phone number for roadside dispatch.', $('inp-phone')); return null; }
+  if (phone && phone.replace(/\D/g, '').length < 7) { showFormError('That phone number looks too short.', $('inp-phone')); return null; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showFormError('That email address looks invalid.', $('inp-email')); return null; }
+  if (isHome && !phone && !email) { showFormError('Add a phone number or email so we can follow up.', $('inp-phone')); return null; }
+  if (!isHome && !vehicle) { showFormError('Please describe your vehicle.', $('inp-vehicle')); return null; }
+  if (!$('chk-location').checked) {
+    showFormError('Confirm the map pin is where help should come — drag the map to adjust it, then tick the confirmation box.');
+    $('chk-location').focus();
+    return null;
   }
 
-  showConfirmation(refId || localRef());
+  const homeMeta = isHome ? [
+    'Property: ' + (document.querySelector('#pill-property .pill.active')?.dataset.val || 'house'),
+    'Panel: ' + (document.querySelector('#pill-panel .pill.active')?.dataset.val || 'unknown'),
+    'Existing: ' + (document.querySelector('#pill-existing .pill.active')?.dataset.val || 'none'),
+  ].join(' | ') : '';
+
+  return Object.freeze({
+    idempotencyKey: crypto.randomUUID ? crypto.randomUUID() : localRef(),
+    category: activeCategory,
+    serviceType: activeSvc,
+    locationLabel: pickupAddr,
+    locationLatitude: pickupLat,
+    locationLongitude: pickupLng,
+    powertrain: isHome ? '' : activePowertrain,
+    vehicle: isHome ? (document.querySelector('#pill-property .pill.active')?.dataset.val || '') : vehicle,
+    notes: isHome ? (homeMeta + (notes ? ' — ' + notes : '')) : notes,
+    customerName: name,
+    customerPhone: phone,
+    customerEmail: email,
+    memberPlanRequested: $('chk-member').checked,
+  });
 }
+
+function openReview(snapshot) {
+  pendingSnapshot = snapshot;
+  $('review-error').classList.add('hidden');
+  const list = $('review-list');
+  list.replaceChildren();
+  const rows = [
+    ['SERVICE', SERVICE_LABELS[snapshot.serviceType] || snapshot.serviceType],
+    ['LOCATION', snapshot.locationLabel],
+    ['NAME', snapshot.customerName || '—'],
+    ['PHONE', snapshot.customerPhone || '—'],
+    ...(snapshot.customerEmail ? [['EMAIL', snapshot.customerEmail]] : []),
+    [snapshot.category === 'home' ? 'PROPERTY' : 'VEHICLE', snapshot.vehicle || '—'],
+    ...(snapshot.notes ? [['SITUATION', snapshot.notes]] : []),
+    ['MEMBERSHIP', snapshot.memberPlanRequested ? 'Include review' : 'No'],
+  ];
+  const [w, s, e, n] = NC_BBOX;
+  if (snapshot.locationLongitude < w || snapshot.locationLongitude > e
+      || snapshot.locationLatitude < s || snapshot.locationLatitude > n) {
+    rows.push(['COVERAGE', 'Pin is outside North Carolina — a dispatcher will confirm coverage.']);
+  }
+  for (const [k, v] of rows) {
+    const div = document.createElement('div');
+    div.className = 'rv-row';
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v;
+    div.append(dt, dd);
+    list.appendChild(div);
+  }
+  openOverlay($('review-overlay'));
+}
+
+$('sheet-cta').addEventListener('click', () => {
+  if (busy) return;
+  const snapshot = validateAndSnapshot();
+  if (snapshot) openReview(snapshot);
+});
+$('review-back').addEventListener('click', () => { if (!busy) closeOverlay($('review-overlay')); });
+$('review-send').addEventListener('click', () => { if (pendingSnapshot) sendRequest(pendingSnapshot); });
 
 function localRef() {
-  return 'REQ-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return 'LOCAL-' + [...bytes].map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
-function showConfirmation(id) {
-  $('confirm-id').textContent = id;
-  $('confirm-overlay').classList.remove('hidden');
-  busy = false;
+async function sendRequest(snapshot) {
+  if (busy) return;
+  busy = true;
+  const sendBtn = $('review-send');
+  const backBtn = $('review-back');
+  sendBtn.disabled = true; backBtn.disabled = true;
+  $('review-send-label').textContent = 'SENDING…';
+  $('review-error').classList.add('hidden');
+
+  const showReviewError = msg => {
+    const el = $('review-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  };
+
+  try {
+    const res = await fetchWithTimeout('/api/assist/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': snapshot.idempotencyKey },
+      body: JSON.stringify(snapshot),
+    }, 12000);
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.request?.id) {
+      closeOverlay($('review-overlay'));
+      try { localStorage.setItem('drev-last-request', data.request.id); } catch (_) {}
+      try { sessionStorage.removeItem('drev-assist-pending'); } catch (_) {}
+      showResult({
+        sent: true,
+        title: 'REQUEST SUBMITTED',
+        body: 'Your review request has been received and stored. A dispatcher will evaluate it and contact you — this is not yet a confirmed job or ETA.',
+        ref: data.request.id,
+      });
+      resetFormAfterSend();
+      return;
+    }
+
+    if (res.status === 400 || res.status === 409) {
+      showReviewError(data.error?.message || 'Please check the details and try again.');
+      return;
+    }
+    if (res.status === 429) {
+      showReviewError('Too many attempts — wait a few minutes, then send again. Your review is kept.');
+      return;
+    }
+    // 503 / 5xx / anything else: the request was NOT stored. Say so plainly.
+    closeOverlay($('review-overlay'));
+    showNotSent(snapshot, data.error?.message);
+  } catch {
+    closeOverlay($('review-overlay'));
+    showNotSent(snapshot);
+  } finally {
+    busy = false;
+    sendBtn.disabled = false; backBtn.disabled = false;
+    $('review-send-label').textContent = 'SEND REQUEST';
+    const cta = $('sheet-cta');
+    cta.disabled = false;
+    $('cta-label').textContent = 'REVIEW REQUEST';
+  }
 }
+
+function showNotSent(snapshot, serverMessage) {
+  const ref = localRef();
+  try {
+    /* Minimal local summary only — no vehicle, notes, or contact details. */
+    sessionStorage.setItem('drev-assist-pending', JSON.stringify({
+      id: ref, at: new Date().toISOString(), category: snapshot.category, svc: snapshot.serviceType, sent: false,
+    }));
+  } catch (_) {}
+  showResult({
+    sent: false,
+    title: 'REQUEST NOT SENT',
+    body: (serverMessage
+      ? `The service could not accept your request: ${serverMessage} `
+      : 'We could not reach the service, so nothing was submitted. ')
+      + 'Check your connection and try again. The reference below is local only — dispatch has not seen this.',
+    ref,
+  });
+}
+
+function showResult({ sent, title, body, ref }) {
+  const ring = $('confirm-ring');
+  ring.classList.toggle('not-sent', !sent);
+  $('confirm-icon-use').setAttribute('href', sent ? '#ic-check' : '#ic-alert');
+  $('confirm-title').textContent = title;
+  $('confirm-body').textContent = body;
+  $('confirm-id').textContent = (sent ? '' : 'NOT SENT · ') + ref;
+  $('confirm-id').dataset.ref = ref;
+  $('confirm-notice').textContent = sent
+    ? 'Review request — not a confirmed job or guaranteed ETA. Save this reference to track or cancel.'
+    : 'This is a local reference only. Nothing has been dispatched.';
+  $('confirm-close-label').textContent = sent ? 'TRACK STATUS' : 'CLOSE';
+  $('confirm-retry').classList.toggle('hidden', sent);
+  pendingSnapshot = sent ? null : pendingSnapshot;
+  openOverlay($('confirm-overlay'));
+}
+
+function resetFormAfterSend() {
+  $('inp-notes').value = '';
+  $('notes-count').textContent = '0';
+  $('chk-member').checked = false;
+  invalidateLocationConfirmation();
+}
+
+$('confirm-copy').addEventListener('click', async () => {
+  const ref = $('confirm-id').dataset.ref;
+  if (!ref) return;
+  try {
+    await navigator.clipboard.writeText(ref);
+    $('confirm-copy').textContent = 'COPIED ✓';
+    setTimeout(() => { $('confirm-copy').textContent = 'COPY REFERENCE'; }, 2000);
+  } catch { /* clipboard unavailable — the ref stays visible to copy manually */ }
+});
+
+$('confirm-retry').addEventListener('click', () => {
+  closeOverlay($('confirm-overlay'));
+  if (pendingSnapshot) openReview(pendingSnapshot);
+});
 
 $('confirm-close').addEventListener('click', () => {
-  $('confirm-overlay').classList.add('hidden');
+  const wasSent = !$('confirm-ring').classList.contains('not-sent');
+  closeOverlay($('confirm-overlay'));
   snapTo('mid');
-  const cta = $('sheet-cta');
-  cta.disabled = false;
-  $('cta-label').textContent = 'REQUEST REVIEW';
+  if (wasSent) {
+    const ref = $('confirm-id').dataset.ref;
+    openOverlay($('profile-modal'));
+    document.body.style.overflow = 'hidden';
+    if (ref) { $('inp-track').value = ref; checkStatus(); }
+  }
 });
 
 /* ── Checkout return handler ────────────────────────────── */
@@ -525,9 +777,10 @@ function checkCheckoutReturn() {
   if (!status) return;
   history.replaceState({}, '', location.pathname);
   if (status === 'success') {
-    const plan = p.get('plan') || 'membership';
-    showBanner(`Your DREV Assist ${plan.toUpperCase()} membership is active. Welcome!`, 'success');
-    $('profile-modal').classList.remove('hidden');
+    const plan = (p.get('plan') || 'membership').toUpperCase().replace(/[^A-Z -]/g, '');
+    showBanner(`Your DREV Assist ${plan} membership is active. Welcome!`, 'success');
+    openOverlay($('profile-modal'));
+    document.body.style.overflow = 'hidden';
   }
 }
 
@@ -548,6 +801,19 @@ function showBanner(msg, type = 'info') {
 }
 
 /* ── Boot ───────────────────────────────────────────────── */
+async function refreshCatalogue() {
+  try {
+    const res = await fetch('/api/assist/services');
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const s of data.services || []) {
+      if (s.guidance) SERVICE_GUIDANCE[s.id] = s.guidance;
+      if (s.label) SERVICE_LABELS[s.id] = s.label;
+    }
+    if (activeSvc) $('svc-guidance').textContent = SERVICE_GUIDANCE[activeSvc] || '';
+  } catch { /* offline fallback copy above still applies */ }
+}
+
 window.addEventListener('load', async () => {
   if (!TOKEN) {
     try {
@@ -559,5 +825,11 @@ window.addEventListener('load', async () => {
   initGeocoder();
   positionPin();
   snapTo('mid', false);
+  /* Initial service guidance + pressed states */
+  const active = document.querySelector('.svc-card.active');
+  if (active) selectCard(active);
+  const last = (() => { try { return localStorage.getItem('drev-last-request'); } catch { return null; } })();
+  if (last) $('inp-track').value = last;
   checkCheckoutReturn();
+  refreshCatalogue();
 });

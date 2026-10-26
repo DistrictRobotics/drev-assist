@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#03080f"/>
+<meta name="description" content="DREV Assist — EV and roadside help plus home charging support in the Charlotte, NC area. Request a review; a dispatcher confirms before anything is dispatched."/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2303080f'/%3E%3Cpath d='M18 4 8 18h6l-2 10L22 14h-6l2-10z' fill='%2300c8ff'/%3E%3C/svg%3E"/>
 <!-- content is injected at the edge by functions/_middleware.js from MAPBOX_TOKEN -->
 <meta name="mapbox-token" content=""/>
 <title>DREV Assist</title>
@@ -217,14 +219,33 @@
       <span><strong>Not emergency services.</strong> Call 911 for injuries. DREV reviews scene-safety logistics only.</span>
     </div>
 
+    <!-- Service-specific guidance (text set from the shared catalogue) -->
+    <p class="svc-guidance" id="svc-guidance" aria-live="polite"></p>
+
     <!-- Form -->
     <div class="req-form" id="req-form">
+
+      <!-- Contact — a dispatcher must be able to reach you -->
+      <div class="form-group">
+        <label class="form-label" for="inp-name">YOUR NAME *</label>
+        <input class="form-input" id="inp-name" type="text" placeholder="First and last name" autocomplete="name" maxlength="100"/>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label" for="inp-phone">PHONE *</label>
+          <input class="form-input" id="inp-phone" type="tel" placeholder="704-555-0123" autocomplete="tel" maxlength="32" inputmode="tel"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inp-email">EMAIL (OPTIONAL)</label>
+          <input class="form-input" id="inp-email" type="email" placeholder="you@example.com" autocomplete="email" maxlength="254" inputmode="email"/>
+        </div>
+      </div>
 
       <!-- Roadside-specific fields -->
       <div id="roadside-fields">
         <div class="form-group">
-          <label class="form-label" for="inp-vehicle">VEHICLE</label>
-          <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off"/>
+          <label class="form-label" for="inp-vehicle">VEHICLE *</label>
+          <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off" maxlength="120"/>
         </div>
       </div>
 
@@ -260,7 +281,16 @@
 
       <div class="form-group">
         <label class="form-label" for="inp-notes">SITUATION</label>
-        <textarea class="form-input form-textarea" id="inp-notes" placeholder="Battery %, warning lights, road conditions…"></textarea>
+        <textarea class="form-input form-textarea" id="inp-notes" placeholder="Battery %, warning lights, road conditions…" maxlength="2000"></textarea>
+        <div class="field-count"><span id="notes-count">0</span>/2000</div>
+      </div>
+
+      <div class="form-group form-group--check">
+        <label class="check-label">
+          <input type="checkbox" id="chk-location" class="check-input"/>
+          <span class="check-box"><svg width="11" height="11"><use href="#ic-check"/></svg></span>
+          <span class="check-text">The pin on the map is where help should come *</span>
+        </label>
       </div>
 
       <div class="form-group form-group--check">
@@ -271,10 +301,12 @@
         </label>
       </div>
 
+      <p class="form-error hidden" id="form-error" role="alert"></p>
+
     </div>
 
     <button class="sheet-cta" id="sheet-cta">
-      <span id="cta-label">REQUEST REVIEW</span>
+      <span id="cta-label">REVIEW REQUEST</span>
       <svg width="16" height="16"><use href="#ic-arrow-right"/></svg>
     </button>
 
@@ -283,17 +315,36 @@
   </div>
 </section>
 
-<!-- Confirmation overlay -->
-<div class="confirm-overlay hidden" id="confirm-overlay">
-  <div class="confirm-card">
-    <div class="confirm-ring">
-      <svg width="26" height="26"><use href="#ic-check"/></svg>
+<!-- Review-before-send dialog: the exact frozen snapshot that will be sent -->
+<div class="confirm-overlay hidden" id="review-overlay">
+  <div class="confirm-card review-card" role="dialog" aria-modal="true" aria-labelledby="review-title">
+    <div class="confirm-title" id="review-title">REVIEW YOUR REQUEST</div>
+    <dl class="review-list" id="review-list"></dl>
+    <p class="form-error hidden" id="review-error" role="alert"></p>
+    <div class="review-actions">
+      <button class="plan-btn plan-btn--ghost" id="review-back">BACK</button>
+      <button class="sheet-cta review-send" id="review-send"><span id="review-send-label">SEND REQUEST</span></button>
     </div>
-    <div class="confirm-title">REQUEST SUBMITTED</div>
-    <div class="confirm-body">Your review request has been received. A dispatcher will evaluate and respond within the hour.</div>
-    <div class="confirm-ref" id="confirm-id">REQ-XXXXXXXX</div>
-    <div class="confirm-notice">Review request — not a confirmed job or guaranteed ETA.</div>
-    <button class="sheet-cta" id="confirm-close">TRACK STATUS</button>
+    <div class="confirm-notice">Sending asks a dispatcher to review — it is not a confirmed job or guaranteed ETA.</div>
+  </div>
+</div>
+
+<!-- Result overlay — `sent` state only appears after the server confirms (201).
+     `not-sent` state is visually distinct and never claims the request was received. -->
+<div class="confirm-overlay hidden" id="confirm-overlay">
+  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="confirm-ring" id="confirm-ring">
+      <svg width="26" height="26" id="confirm-icon"><use href="#ic-check" id="confirm-icon-use"/></svg>
+    </div>
+    <div class="confirm-title" id="confirm-title">REQUEST SUBMITTED</div>
+    <div class="confirm-body" id="confirm-body">Your review request has been received. A dispatcher will evaluate and respond — usually within the hour during operating hours.</div>
+    <div class="confirm-ref" id="confirm-id">—</div>
+    <button class="track-go-btn confirm-copy" id="confirm-copy" type="button">COPY REFERENCE</button>
+    <div class="confirm-notice" id="confirm-notice">Review request — not a confirmed job or guaranteed ETA. Save this reference to track or cancel.</div>
+    <div class="review-actions">
+      <button class="plan-btn plan-btn--ghost hidden" id="confirm-retry">TRY AGAIN</button>
+      <button class="sheet-cta review-send" id="confirm-close"><span id="confirm-close-label">TRACK STATUS</span></button>
+    </div>
   </div>
 </div>
 
@@ -318,6 +369,7 @@
         <button class="track-go-btn" id="btn-track">CHECK</button>
       </div>
       <div class="track-result hidden" id="track-result"></div>
+      <button class="track-go-btn hidden" id="btn-cancel-req" type="button">CANCEL THIS REQUEST</button>
     </div>
 
     <div class="profile-rule"></div>
@@ -334,7 +386,7 @@
             <div class="plan-perk">2 roadside events/yr</div>
             <div class="plan-perk">Priority dispatch</div>
           </div>
-          <button class="plan-btn plan-btn--ghost" id="btn-plan-essential" onclick="subscribePlan('essential')">SUBSCRIBE</button>
+          <button class="plan-btn plan-btn--ghost" id="btn-plan-essential" data-plan="essential">SUBSCRIBE</button>
         </div>
 
         <div class="plan-card plan-card--hi">
@@ -346,11 +398,11 @@
             <div class="plan-perk">Home energy consult</div>
             <div class="plan-perk">V2H planning incl.</div>
           </div>
-          <button class="plan-btn" id="btn-plan-flex" onclick="subscribePlan('flex')">SUBSCRIBE</button>
+          <button class="plan-btn" id="btn-plan-flex" data-plan="flex">SUBSCRIBE</button>
         </div>
 
       </div>
-      <p class="profile-body-text plan-note hidden" id="plan-note" style="margin-top:10px;font-size:12px"></p>
+      <p class="profile-body-text plan-note hidden" id="plan-note"></p>
     </div>
 
     <div class="profile-rule"></div>

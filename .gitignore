@@ -1,4 +1,7 @@
 node_modules/
 .wrangler/
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 scripts/set-stripe-keys.ps1
+.DS_Store
