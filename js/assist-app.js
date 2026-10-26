@@ -57,6 +57,8 @@ let satellite = false;
 let busy = false;
 let pendingSnapshot = null;   // frozen review snapshot awaiting / retrying a send
 let trackedId = null;         // request id currently shown in the tracker
+let trackedRequest = null;    // last status payload (may carry a provider feed)
+let tracking = null;          // active live-tracking session
 let lastFocused = null;
 
 /* ── Map ────────────────────────────────────────────────── */
@@ -403,8 +405,11 @@ async function checkStatus() {
   const id = $('inp-track').value.trim();
   const result = $('track-result');
   const cancelBtn = $('btn-cancel-req');
+  const liveBtn = $('btn-live-track');
   cancelBtn.classList.add('hidden');
+  liveBtn.classList.add('hidden');
   trackedId = null;
+  trackedRequest = null;
 
   const show = (text, cls) => {
     result.replaceChildren();
@@ -436,6 +441,7 @@ async function checkStatus() {
     result.className = 'track-result track-ok';
     result.classList.remove('hidden');
     if (r.cancellable) cancelBtn.classList.remove('hidden');
+    if (r.status === 'dispatched') { trackedRequest = r; liveBtn.classList.remove('hidden'); }
   } catch {
     show('Could not reach the server. Check your connection.', 'track-err');
   }
@@ -462,6 +468,107 @@ $('btn-cancel-req').addEventListener('click', async () => {
   }
   busy = false;
 });
+
+
+/* ── Live tracking: 3D follow-cam over the provider feed ──
+   Position comes from the status API's providerFeed when present
+   (currently a clearly-labelled simulation until a real GPS feed is
+   connected); movement between polls is interpolated along a route so
+   the provider glides instead of teleporting.                    */
+$('btn-live-track').addEventListener('click', () => { if (trackedRequest) startLiveTracking(trackedRequest); });
+$('th-exit').addEventListener('click', () => stopLiveTracking());
+
+function startLiveTracking(req) {
+  stopLiveTracking();
+  if (!map || !window.DrevLive) { showBanner('Live map is unavailable on this device.', 'info'); return; }
+  closeProfile();
+  snapTo('peek');
+
+  const target = { lng: pickupLng, lat: pickupLat };
+  const feed = req.providerFeed || null;
+  const start = feed?.position
+    ? { lng: feed.position.lng, lat: feed.position.lat }
+    : { lng: target.lng - 0.035, lat: target.lat + 0.025 };
+  const route = DrevLive.routeBetween(start, target, 7);
+  const fromProgress = feed?.progress || 0;
+
+  tracking = {
+    route, target, reqId: req.id,
+    startedAt: Date.now(),
+    durationMs: Math.max(15000, 90000 * (1 - fromProgress)),
+    fromProgress, lastCam: 0, poll: null, raf: 0,
+  };
+
+  const routeFC = { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: route.map(p => [p.lng, p.lat]) }, properties: {} }] };
+  const pointFC = pos => ({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [pos.lng, pos.lat] }, properties: {} }] });
+  try {
+    if (!map.getSource('track-route')) {
+      map.addSource('track-route', { type: 'geojson', data: routeFC });
+      map.addLayer({ id: 'track-route', type: 'line', source: 'track-route', paint: { 'line-color': '#00c8ff', 'line-width': 4, 'line-opacity': 0.85 } });
+    } else map.getSource('track-route').setData(routeFC);
+    if (!map.getSource('track-dest')) {
+      map.addSource('track-dest', { type: 'geojson', data: pointFC(target) });
+      map.addLayer({ id: 'track-dest', type: 'circle', source: 'track-dest', paint: { 'circle-radius': 8, 'circle-color': '#00c8ff', 'circle-stroke-color': '#eaf7ff', 'circle-stroke-width': 2 } });
+    } else map.getSource('track-dest').setData(pointFC(target));
+    if (!map.getSource('track-provider')) {
+      map.addSource('track-provider', { type: 'geojson', data: pointFC(start) });
+      map.addLayer({ id: 'track-provider', type: 'circle', source: 'track-provider', paint: { 'circle-radius': 10, 'circle-color': '#ffd93d', 'circle-stroke-color': '#0a1420', 'circle-stroke-width': 2 } });
+    } else map.getSource('track-provider').setData(pointFC(start));
+  } catch (_) { /* layers are decorative if the style is mid-switch */ }
+
+  $('th-badge').textContent = feed && feed.simulated === false ? 'LIVE FEED' : 'SIMULATED LIVE FEED';
+  $('th-title').textContent = (req.providerLabel || feed?.label || 'Provider') + ' en route';
+  $('tracking-hud').classList.remove('hidden');
+
+  const step = () => {
+    if (!tracking) return;
+    const elapsed = Date.now() - tracking.startedAt;
+    const progress = Math.min(1, tracking.fromProgress + (1 - tracking.fromProgress) * (elapsed / tracking.durationMs));
+    const pos = DrevLive.pointAlongRoute(tracking.route, DrevLive.easeInOut(progress));
+    try { map.getSource('track-provider')?.setData(pointFC(pos)); } catch (_) {}
+    const remainingKm = tracking.route.totalKm * (1 - progress);
+    $('th-bar').style.width = Math.round(progress * 100) + '%';
+    $('th-meta').textContent = progress >= 1
+      ? 'Provider has arrived at the pin. Meet them outside if it is safe.'
+      : `${remainingKm.toFixed(1)} km away · heading ${Math.round(pos.bearing || 0)}° · position is ${feed?.simulated === false ? 'live' : 'simulated for demo'}`;
+    if (progress >= 1) { $('th-title').textContent = 'Provider arrived'; return; }
+    if (Date.now() - tracking.lastCam > 2000) {
+      tracking.lastCam = Date.now();
+      map.easeTo({ center: [pos.lng, pos.lat], zoom: 15, pitch: 60, bearing: pos.bearing || 0, duration: rm ? 0 : 1600 });
+    }
+    tracking.raf = requestAnimationFrame(step);
+  };
+  tracking.raf = requestAnimationFrame(step);
+
+  /* Keep the journey honest: if dispatch changes the status, tracking ends. */
+  tracking.poll = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/assist/status/${encodeURIComponent(tracking.reqId)}`);
+      if (!res.ok) return;
+      const r = (await res.json()).request;
+      if (r.status !== 'dispatched') {
+        $('th-title').textContent = r.status === 'complete' ? 'Job complete — thank you' : `Status: ${r.status}`;
+        $('th-meta').textContent = 'Tracking ended because the request status changed.';
+        clearInterval(tracking.poll);
+      }
+    } catch (_) { /* a missed poll just means we keep interpolating */ }
+  }, 10000);
+}
+
+function stopLiveTracking() {
+  if (tracking) {
+    cancelAnimationFrame(tracking.raf);
+    if (tracking.poll) clearInterval(tracking.poll);
+    tracking = null;
+  }
+  $('tracking-hud')?.classList.add('hidden');
+  if (map) {
+    for (const id of ['track-provider', 'track-dest', 'track-route']) {
+      try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {}
+      try { if (map.getSource(id)) map.removeSource(id); } catch (_) {}
+    }
+  }
+}
 
 /* ── Membership checkout (handlers bound here, no inline onclick) ── */
 document.querySelectorAll('[data-plan]').forEach(btn => {

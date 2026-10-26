@@ -86,6 +86,15 @@
   <div class="pin-dot"></div>
 </div>
 
+<!-- Live tracking HUD (shown while following a dispatched provider) -->
+<div class="tracking-hud hidden" id="tracking-hud" role="status" aria-live="polite">
+  <div class="th-badge" id="th-badge">SIMULATED LIVE FEED</div>
+  <div class="th-title" id="th-title">Provider en route</div>
+  <div class="th-meta" id="th-meta">Locating provider…</div>
+  <div class="th-progress"><div class="th-progress-bar" id="th-bar"></div></div>
+  <button class="track-go-btn th-exit" id="th-exit" type="button">EXIT TRACKING</button>
+</div>
+
 <!-- Geocoder search -->
 <div class="geocoder-wrap" id="geocoder-wrap"></div>
 
@@ -369,6 +378,7 @@
         <button class="track-go-btn" id="btn-track">CHECK</button>
       </div>
       <div class="track-result hidden" id="track-result"></div>
+      <button class="track-go-btn hidden" id="btn-live-track" type="button">VIEW LIVE TRACKING</button>
       <button class="track-go-btn hidden" id="btn-cancel-req" type="button">CANCEL THIS REQUEST</button>
     </div>
 
@@ -419,6 +429,7 @@
 
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
 
+<script src="js/live-data.js"></script>
 <script src="js/assist-app.js"></script>
 </body>
 </html>
