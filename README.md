@@ -95,6 +95,25 @@ the rendering layer would change.
 | `GET/POST/DELETE /api/assist/vehicles`, `/homes` | customer JWT | Saved vehicles / homes |
 | `POST /api/assist/checkout`, `/webhook` | — | Membership billing (optional) |
 
+## Mobile & performance
+
+The app must load on any phone, including low-end Android on a weak
+connection:
+
+- **Nothing render-blocking in `<head>`.** Mapbox GL + Geocoder load
+  dynamically with a 9-second timeout; boot runs at `DOMContentLoaded`,
+  never on `window.load`. First paint is ~26 KB of HTML + local CSS.
+- **Device tiers.** Capability detection (WebGL probe, `deviceMemory`,
+  cores, coarse pointer, Save-Data, reduced motion) picks a low-power
+  profile: no antialiasing, 32° pitch, pixel ratio 1, no 3D buildings/
+  fog/terrain, reduced backdrop-blur — the usual mobile freeze culprits.
+- **No-map mode.** If WebGL is off, the CDN dies, or no token is set, the
+  request flow still works: type an address or use GPS, submit as normal.
+- **Intro splash** is branded, skippable by tap, auto-dismisses when the
+  app is ready, and has a 2.6 s hard cap so it can never trap a stranded
+  user. It also surfaces a 911 link.
+- The manager map lazy-loads after login with the same tiering.
+
 ## Security model
 
 See [SECURITY.md](SECURITY.md). The short version:

@@ -6,8 +6,9 @@
 <meta name="theme-color" content="#03080f"/>
 <title>DREV Assist Manager</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet"/>
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
+<!-- Mapbox is loaded dynamically by js/manager.js after login, with a timeout,
+     so the dashboard login is never blocked by a slow CDN. -->
+<meta name="mobile-web-app-capable" content="yes"/>
 <link rel="stylesheet" href="css/manager.css"/>
 </head>
 <body>

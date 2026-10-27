@@ -363,3 +363,10 @@ input { font: inherit; background: none; border: none; color: inherit; }
 .mapboxgl-popup-content { background: #0c1a2e !important; color: #ddeef8 !important; border: 1px solid rgba(0,200,255,.25); border-radius: 10px !important; font: 500 13px Rajdhani, sans-serif; }
 .mapboxgl-popup-tip { border-top-color: #0c1a2e !important; }
 .popup-title { font: 700 11px Orbitron; letter-spacing: 1px; margin-bottom: 4px; }
+
+@media (max-width: 680px) {
+  .dispatch-map { height: 280px; }
+  .dispatch-panel { padding: 12px 12px 10px; }
+  .req-list { padding: 12px; }
+  .time-slider { min-width: 100px; }
+}

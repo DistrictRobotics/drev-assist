@@ -21,6 +21,94 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const $ = id => document.getElementById(id);
 const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* ── Device capability tiers ──────────────────────────────
+   Low-end phones were freezing on the full-fat map (58° pitch, antialias,
+   uncapped DPR, 3D buildings, backdrop-blur). Detect once and scale down. */
+function webglAvailable() {
+  try {
+    const c = document.createElement('canvas');
+    return !!(window.WebGLRenderingContext && (c.getContext('webgl2') || c.getContext('webgl')));
+  } catch { return false; }
+}
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const SMALL_SCREEN = Math.min(window.innerWidth, window.innerHeight) < 500;
+const LOW_POWER = !!(
+  rm || navigator.connection?.saveData
+  || (navigator.deviceMemory && navigator.deviceMemory <= 4)
+  || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4 && COARSE)
+  || (COARSE && SMALL_SCREEN && (navigator.deviceMemory || 8) <= 8 && window.devicePixelRatio > 2.5)
+);
+const WEBGL_OK = webglAvailable();
+const PITCH = LOW_POWER ? 32 : 58;
+document.body.classList.toggle('low-power', LOW_POWER);
+
+/* ── Timed dynamic asset loading ──────────────────────────
+   Mapbox is loaded by JS (never render-blocking in <head>) and every load
+   has a timeout, so a dead CDN degrades to no-map mode instead of a freeze. */
+const MAPBOX_VERSION = 'v3.9.4';
+function loadScript(src, timeoutMs = 9000) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { s.remove(); reject(new Error('timeout')); }, timeoutMs);
+    s.src = src; s.async = true;
+    s.onload = () => { clearTimeout(timer); resolve(); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('load failed')); };
+    document.head.appendChild(s);
+  });
+}
+function loadCSS(href) {
+  return new Promise(resolve => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = href;
+    l.onload = () => resolve(); l.onerror = () => resolve();
+    document.head.appendChild(l);
+  });
+}
+async function loadMapboxGL() {
+  if (window.mapboxgl) return true;
+  try {
+    await loadCSS(`https://api.mapbox.com/mapbox-gl-js/${MAPBOX_VERSION}/mapbox-gl.css`);
+    await loadScript(`https://api.mapbox.com/mapbox-gl-js/${MAPBOX_VERSION}/mapbox-gl.js`);
+    return !!window.mapboxgl;
+  } catch { return false; }
+}
+async function loadGeocoderLib() {
+  if (window.MapboxGeocoder) return true;
+  try {
+    await loadCSS('https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css');
+    await loadScript('https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js');
+    return !!window.MapboxGeocoder;
+  } catch { return false; }
+}
+
+/* ── Intro splash ───────────────────────────────────────── */
+const introT0 = Date.now();
+let introGone = false;
+function dismissIntro() {
+  const intro = $('intro');
+  if (!intro || introGone) return;
+  introGone = true;
+  let seen = false;
+  try { seen = !!sessionStorage.getItem('drev-intro-seen'); sessionStorage.setItem('drev-intro-seen', '1'); } catch (_) {}
+  const minShow = rm ? 150 : seen ? 350 : 1000;
+  const wait = Math.max(0, minShow - (Date.now() - introT0));
+  setTimeout(() => {
+    intro.classList.add('done');
+    setTimeout(() => intro.remove(), 650);
+  }, wait);
+}
+/* The intro can never trap anyone: tap, buttons, or the hard cap dismiss it. */
+setTimeout(dismissIntro, 2600);
+document.addEventListener('DOMContentLoaded', () => {
+  $('intro')?.addEventListener('click', e => { if (e.target === $('intro')) dismissIntro(); });
+  $('intro-help')?.addEventListener('click', () => { dismissIntro(); snapTo('full'); });
+  $('intro-track')?.addEventListener('click', () => {
+    dismissIntro();
+    openOverlay($('profile-modal'));
+    document.body.style.overflow = 'hidden';
+  });
+});
+
 /* Fallback copy — refreshed from GET /api/assist/services when reachable,
    so guidance never drifts from the server-side catalogue. */
 let SERVICE_GUIDANCE = {
@@ -71,16 +159,23 @@ function initMap() {
     style: 'mapbox://styles/mapbox/navigation-night-v1',
     center: CENTER,
     zoom: 14,
-    pitch: 58,
+    pitch: PITCH,
     bearing: -15,
-    antialias: true,
-    maxPitch: 85,
+    antialias: !LOW_POWER,
+    maxPitch: LOW_POWER ? 45 : 85,
     attributionControl: false,
+    fadeDuration: LOW_POWER ? 0 : 300,
+    renderWorldCopies: false,
+    failIfMajorPerformanceCaveat: false,
   });
+  try { map.setPixelRatio?.(LOW_POWER ? 1 : Math.min(window.devicePixelRatio || 1, 2)); } catch (_) {}
 
   map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
 
   map.on('load', () => {
+    initGeocoder();
+    dismissIntro();
+    if (LOW_POWER) { reverseGeocode(CENTER[0], CENTER[1]); return; }
     try {
       map.setFog({ color: 'rgb(8,18,32)', 'high-color': 'rgb(3,8,15)', 'space-color': 'rgb(3,8,15)', 'star-intensity': 0.9 });
       const labelLayer = map.getStyle().layers.find(l => l.type === 'symbol' && l.layout?.['text-field']);
@@ -123,9 +218,12 @@ function invalidateLocationConfirmation() {
   if (chk) chk.checked = false;
 }
 
-/* ── Geocoder ───────────────────────────────────────────── */
-function initGeocoder() {
-  if (!window.MapboxGeocoder) return;
+/* ── Geocoder (library lazy-loaded; search is not on the critical path) ── */
+let geocoderStarted = false;
+async function initGeocoder() {
+  if (geocoderStarted || !map) return;
+  geocoderStarted = true;
+  if (!(await loadGeocoderLib())) return;
   geocoder = new MapboxGeocoder({
     accessToken: TOKEN,
     mapboxgl,
@@ -134,7 +232,7 @@ function initGeocoder() {
     proximity: { longitude: CENTER[0], latitude: CENTER[1] },
     placeholder: 'Search address in North Carolina',
     marker: false,
-    flyTo: { speed: 1.6, curve: 1.4, pitch: 58, bearing: -15 },
+    flyTo: { speed: 1.6, curve: 1.4, pitch: PITCH, bearing: -15 },
   });
   $('geocoder-wrap').appendChild(geocoder.onAdd(map));
   geocoder.on('result', e => {
@@ -175,6 +273,39 @@ function setAddrBadge(label, ok) {
   el.textContent = label;
   el.className = 'addr-badge' + (ok ? ' set' : '');
 }
+
+/* ── No-map mode ──────────────────────────────────────────
+   WebGL missing / CDN timeout / no token: the request flow must still
+   work. Pickup falls back to a typed address or device geolocation.   */
+function enterNoMapMode(message) {
+  document.body.classList.add('no-map');
+  const fb = $('map-fallback');
+  if (fb) {
+    fb.classList.remove('hidden');
+    if (message) $('mf-text').textContent = message;
+  }
+  setAddrText(pickupAddr === 'Charlotte, NC' ? 'Charlotte, NC (default area)' : pickupAddr);
+  setAddrBadge('MANUAL', false);
+  dismissIntro();
+}
+$('fallback-addr')?.addEventListener('input', e => {
+  const v = e.target.value.trim();
+  if (v) { pickupAddr = v; setAddrText(v); setAddrBadge('MANUAL', true); }
+});
+$('fallback-locate')?.addEventListener('click', () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      pickupLng = pos.coords.longitude; pickupLat = pos.coords.latitude;
+      pickupAddr = $('fallback-addr').value.trim() || `${pickupLat.toFixed(5)}, ${pickupLng.toFixed(5)}`;
+      invalidateLocationConfirmation();
+      setAddrText(pickupAddr);
+      setAddrBadge('GPS', true);
+    },
+    () => { $('mf-text').textContent = 'Location permission was denied — type your address or nearest cross-streets above instead.'; },
+    { enableHighAccuracy: true, timeout: 10000 },
+  );
+});
 
 /* ── Pin positioning ────────────────────────────────────── */
 function positionPin() {
@@ -601,16 +732,16 @@ async function subscribePlan(plan, btn) {
 
 /* ── FABs ───────────────────────────────────────────────── */
 $('locate-btn').addEventListener('click', () => {
-  if (!navigator.geolocation) { map?.flyTo({ center: CENTER, zoom: 14, pitch: 58, bearing: -15, speed: 1.4 }); return; }
+  if (!navigator.geolocation) { map?.flyTo({ center: CENTER, zoom: 14, pitch: PITCH, bearing: -15, speed: 1.4 }); return; }
   navigator.geolocation.getCurrentPosition(
-    pos => map?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 16, pitch: 58, bearing: -15, speed: 1.4 }),
-    () => map?.flyTo({ center: CENTER, zoom: 14, pitch: 58, bearing: -15, speed: 1.4 }),
+    pos => map?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 16, pitch: PITCH, bearing: -15, speed: 1.4 }),
+    () => map?.flyTo({ center: CENTER, zoom: 14, pitch: PITCH, bearing: -15, speed: 1.4 }),
     { enableHighAccuracy: true, timeout: 10000 },
   );
 });
 
 $('compass-btn').addEventListener('click', () => {
-  map?.easeTo({ bearing: -15, pitch: 58, duration: rm ? 0 : 500 });
+  map?.easeTo({ bearing: -15, pitch: PITCH, duration: rm ? 0 : 500 });
 });
 
 $('satellite-btn').addEventListener('click', () => {
@@ -921,22 +1052,54 @@ async function refreshCatalogue() {
   } catch { /* offline fallback copy above still applies */ }
 }
 
-window.addEventListener('load', async () => {
+/* ── Boot ─────────────────────────────────────────────────
+   Runs as soon as the DOM is parsed — never gated on window 'load', so a
+   slow font or CDN cannot leave a frozen splash. The form is usable
+   immediately; the map streams in behind the intro when it is ready.   */
+let booted = false;
+async function boot() {
+  if (booted) return;
+  booted = true;
+  positionPin();
+  snapTo('mid', false);
+  const active = document.querySelector('.svc-card.active');
+  if (active) selectCard(active);
+  try {
+    const last = localStorage.getItem('drev-last-request');
+    if (last) $('inp-track').value = last;
+  } catch (_) {}
+  checkCheckoutReturn();
+  refreshCatalogue();
+
   if (!TOKEN) {
     try {
-      const cfg = await fetch('/api/assist/config').then(r => r.json());
+      const cfg = await Promise.race([
+        fetch('/api/assist/config').then(r => r.json()),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('config timeout')), 4000)),
+      ]);
       TOKEN = cfg.token || '';
     } catch (_) {}
   }
-  initMap();
-  initGeocoder();
-  positionPin();
-  snapTo('mid', false);
-  /* Initial service guidance + pressed states */
-  const active = document.querySelector('.svc-card.active');
-  if (active) selectCard(active);
-  const last = (() => { try { return localStorage.getItem('drev-last-request'); } catch { return null; } })();
-  if (last) $('inp-track').value = last;
-  checkCheckoutReturn();
-  refreshCatalogue();
-});
+
+  if (!WEBGL_OK) {
+    enterNoMapMode('Your browser has WebGL disabled, so the interactive map cannot load. You can still request help — just tell us where you are.');
+    return;
+  }
+  if (!TOKEN) {
+    enterNoMapMode('The map service is not configured on this deployment yet. You can still request help — just tell us where you are.');
+    return;
+  }
+  const idle = window.requestIdleCallback || (fn => setTimeout(fn, 250));
+  idle(async () => {
+    const ok = await loadMapboxGL();
+    if (!ok) {
+      enterNoMapMode('The map could not be loaded (connection or blocker). You can still request help — just tell us where you are.');
+      return;
+    }
+    try { initMap(); } catch (_) {
+      enterNoMapMode('The map failed to start on this device. You can still request help — just tell us where you are.');
+    }
+  }, { timeout: 1200 });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();

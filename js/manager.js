@@ -235,11 +235,36 @@ function logout() {
    enough of them, seeded demo data otherwise (also labelled).   */
 function setLiveMeta(text) { const el = $('live-meta'); if (el) el.textContent = text; }
 
+function loadScriptMgr(src, timeoutMs = 9000) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { s.remove(); reject(new Error('timeout')); }, timeoutMs);
+    s.src = src; s.async = true;
+    s.onload = () => { clearTimeout(timer); resolve(); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('load failed')); };
+    document.head.appendChild(s);
+  });
+}
+const MGR_LOW_POWER = matchMedia('(pointer: coarse)').matches && Math.min(window.innerWidth, window.innerHeight) < 820;
+
 async function initDispatchMap() {
   if (dmap) { dmap.resize(); return; }
   const fallback = $('map-fallback');
-  if (!window.mapboxgl || !window.DrevLive) {
-    if (fallback) fallback.textContent = 'MAP LIBRARY UNAVAILABLE — QUEUE BELOW STILL WORKS';
+  if (!window.DrevLive) {
+    if (fallback) fallback.textContent = 'MAP DATA UNAVAILABLE — QUEUE BELOW STILL WORKS';
+    return;
+  }
+  if (!window.mapboxgl) {
+    try {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css';
+      document.head.appendChild(css);
+      await loadScriptMgr('https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js');
+    } catch (_) { /* fall through to the check below */ }
+  }
+  if (!window.mapboxgl) {
+    if (fallback) fallback.textContent = 'MAP LIBRARY COULD NOT LOAD — QUEUE BELOW STILL WORKS';
+    setLiveMeta('map unavailable');
     return;
   }
   let token = '';
@@ -250,10 +275,11 @@ async function initDispatchMap() {
     return;
   }
   mapboxgl.accessToken = token;
+  if (MGR_LOW_POWER) $('lyr-3d').checked = false;
   sim = DrevLive.createSimulation(11);
   dmap = new mapboxgl.Map({
     container: 'dispatch-map', style: 'mapbox://styles/mapbox/navigation-night-v1',
-    center: [-80.843, 35.227], zoom: 10.5, pitch: 55, bearing: -15, antialias: true, attributionControl: false,
+    center: [-80.843, 35.227], zoom: 10.5, pitch: MGR_LOW_POWER ? 30 : 55, bearing: -15, antialias: !MGR_LOW_POWER, attributionControl: false, fadeDuration: MGR_LOW_POWER ? 0 : 300,
   });
   dmap.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
 
@@ -261,6 +287,7 @@ async function initDispatchMap() {
     mapReady = true;
     fallback?.remove();
     try {
+      if (MGR_LOW_POWER) throw new Error('low-power: skip terrain/sky');
       dmap.setFog({ color: 'rgb(8,18,32)', 'high-color': 'rgb(3,8,15)', 'space-color': 'rgb(3,8,15)', 'star-intensity': 0.8 });
       dmap.addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 });
       dmap.setTerrain({ source: 'mapbox-dem', exaggeration: 1.25 });
@@ -285,6 +312,7 @@ async function initDispatchMap() {
       }, firstLabel);
     } catch (_) {}
 
+    if (!$('lyr-3d').checked) { try { dmap.setLayoutProperty('bldg-3d', 'visibility', 'none'); } catch (_) {} }
     dmap.addLayer({ id: 'outages-3d', type: 'fill-extrusion', source: 'outages', layout: { visibility: 'none' },
       paint: { 'fill-extrusion-color': '#ff6b2b', 'fill-extrusion-opacity': 0.4, 'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-base': 0 } }, firstLabel);
     dmap.addLayer({ id: 'demand-heat', type: 'heatmap', source: 'demand',
