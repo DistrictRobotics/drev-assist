@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#03080f"/>
 <title>DREV Assist Manager</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet"/>
+<!-- Mapbox is loaded dynamically by js/manager.js after login, with a timeout,
+     so the dashboard login is never blocked by a slow CDN. -->
+<meta name="mobile-web-app-capable" content="yes"/>
 <link rel="stylesheet" href="css/manager.css"/>
 </head>
 <body>
@@ -72,12 +75,44 @@
         <button class="hdr-btn" id="refresh-btn">↻ REFRESH</button>
       </div>
     </div>
+    <!-- 3D dispatch map + 4D replay -->
+    <section class="dispatch-panel" id="dispatch-panel">
+      <div class="dispatch-hdr">
+        <div class="dispatch-title">DISPATCH MAP <span class="dispatch-meta" id="live-meta">connecting…</span></div>
+        <div class="dispatch-modes" role="group" aria-label="Map mode">
+          <button class="hdr-btn mode-btn active" id="mode-live" type="button">● LIVE</button>
+          <button class="hdr-btn mode-btn" id="mode-replay" type="button">◐ REPLAY 24H</button>
+          <button class="hdr-btn" id="btn-fly" type="button">⌖ FLY OVER</button>
+        </div>
+      </div>
+      <div id="dispatch-map" class="dispatch-map">
+        <div class="map-fallback" id="map-fallback">Loading map…</div>
+      </div>
+      <div class="dispatch-controls">
+        <button class="hdr-btn" id="btn-play" type="button" aria-label="Play or pause replay">▶</button>
+        <div class="clock-read" id="clock-read">LIVE</div>
+        <input class="time-slider" id="time-slider" type="range" min="0" max="1439" value="720" step="5" aria-label="Time of day (replay)"/>
+        <label class="layer-toggle"><input type="checkbox" id="lyr-providers" checked/> Providers</label>
+        <label class="layer-toggle"><input type="checkbox" id="lyr-demand" checked/> Demand</label>
+        <label class="layer-toggle"><input type="checkbox" id="lyr-outages"/> Outages</label>
+        <label class="layer-toggle"><input type="checkbox" id="lyr-3d" checked/> 3D</label>
+      </div>
+      <div class="dispatch-legend">
+        <span><i class="dot d-submitted"></i> New</span>
+        <span><i class="dot d-reviewed"></i> Reviewed</span>
+        <span><i class="dot d-dispatched"></i> Dispatched</span>
+        <span><i class="dot d-provider"></i> Provider (simulated feed)</span>
+        <span><i class="dot d-outage"></i> Outage (demo)</span>
+      </div>
+    </section>
+
     <div class="req-list" id="req-list">
       <div class="spinner"></div>
     </div>
   </main>
 </div>
 
+<script src="js/live-data.js"></script>
 <script src="js/manager.js"></script>
 </body>
 </html>

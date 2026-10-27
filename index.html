@@ -12,10 +12,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet"/>
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
-<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
-<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css"/>
+<!-- Mapbox GL + Geocoder are loaded dynamically by js/assist-app.js (with a
+     timeout and a no-map fallback) so a slow CDN can never freeze first paint. -->
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <link rel="stylesheet" href="css/assist.css"/>
 </head>
 <body>
@@ -102,8 +103,36 @@
   <symbol id="ic-satellite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m3.5 11.5 1 1m6-9 1 1M5.5 9.5l9-9m-9 14 9-9"/><path d="M9.5 5.5c4-4 9-4.5 12.5-1S18 14 14 18"/></symbol>
 </svg>
 
+<!-- Intro splash -->
+<div class="intro" id="intro" role="dialog" aria-label="Welcome to DREV Assist">
+  <div class="intro-inner">
+    <div class="intro-mark">
+      <span class="intro-ring"></span>
+      <svg width="34" height="34"><use href="#ic-bolt"/></svg>
+    </div>
+    <div class="intro-word"><span>D</span>REV<em> ASSIST</em></div>
+    <p class="intro-tag">EV charge, roadside help &amp; home energy — Charlotte, NC</p>
+    <div class="intro-chips">
+      <span>EV Charge</span><span>Jump Start</span><span>Tow</span><span>Home Charging</span>
+    </div>
+    <button class="intro-cta" id="intro-help">GET HELP NOW</button>
+    <button class="intro-link" id="intro-track">Track an existing request</button>
+    <div class="intro-progress" aria-hidden="true"><i></i></div>
+    <p class="intro-911">Emergency? <a href="tel:911">Call 911</a> first.</p>
+  </div>
+</div>
+
 <!-- Map fills viewport -->
 <div id="map" role="region" aria-label="Pickup location map"></div>
+
+<!-- No-map fallback: manual pickup entry when WebGL/Mapbox is unavailable -->
+<div class="map-fallback hidden" id="map-fallback">
+  <div class="mf-title">MAP UNAVAILABLE</div>
+  <p class="mf-text" id="mf-text">Your device could not load the interactive map. You can still request help — just tell us where you are.</p>
+  <label class="form-label" for="fallback-addr">WHERE ARE YOU?</label>
+  <input class="form-input" id="fallback-addr" type="text" placeholder="Street address, cross-streets, or landmark" maxlength="300" autocomplete="street-address"/>
+  <button class="track-go-btn mf-btn" id="fallback-locate" type="button">USE MY LOCATION</button>
+</div>
 
 <!-- Vignette overlay -->
 <div class="map-vignette" aria-hidden="true"></div>
@@ -142,6 +171,15 @@
   </div>
   <div class="pin-stem"></div>
   <div class="pin-dot"></div>
+</div>
+
+<!-- Live tracking HUD (shown while following a dispatched provider) -->
+<div class="tracking-hud hidden" id="tracking-hud" role="status" aria-live="polite">
+  <div class="th-badge" id="th-badge">SIMULATED LIVE FEED</div>
+  <div class="th-title" id="th-title">Provider en route</div>
+  <div class="th-meta" id="th-meta">Locating provider…</div>
+  <div class="th-progress"><div class="th-progress-bar" id="th-bar"></div></div>
+  <button class="track-go-btn th-exit" id="th-exit" type="button">EXIT TRACKING</button>
 </div>
 
 <!-- Geocoder search -->
@@ -427,6 +465,7 @@
         <button class="track-go-btn" id="btn-track">CHECK</button>
       </div>
       <div class="track-result hidden" id="track-result"></div>
+      <button class="track-go-btn hidden" id="btn-live-track" type="button">VIEW LIVE TRACKING</button>
       <button class="track-go-btn hidden" id="btn-cancel-req" type="button">CANCEL THIS REQUEST</button>
     </div>
 
@@ -477,6 +516,7 @@
 
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
 
+<script src="js/live-data.js"></script>
 <script src="js/assist-app.js"></script>
 <script>
 (function(){

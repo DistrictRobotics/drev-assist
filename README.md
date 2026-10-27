@@ -44,6 +44,39 @@ npx wrangler d1 migrations apply drev-assist-db
    reachable from any non-terminal state. Every change writes an audit row
    to `assist_request_events`.
 
+## Realtime 3D / 4D layer
+
+Both apps share a realtime core (`js/live-data.js`); the API mirrors it
+server-side (`functions/api/assist/_live-sim.js`, `/api/assist/live`).
+
+- **Manager dispatch map (3D):** terrain + sky, 3D buildings, real request
+  pins colored by status, provider units moving along routes, click
+  popups, layer toggles, and a cinematic Fly Over. Providers are a
+  **simulated feed** (labelled in the legend, meta line, and popups) until
+  a real GPS source is connected — the rendering consumes the same shape
+  a real feed would produce.
+- **4D replay:** switch LIVE → REPLAY 24H and scrub the time slider (or
+  press play). A demand heatmap shows the trailing 90 minutes — computed
+  from real request history once there are ≥5 located requests, seeded
+  demo data before that (labelled in the meta line either way).
+- **Customer live tracking:** when a tracked request is `dispatched`, the
+  status API includes a `providerFeed` whose position is a deterministic
+  function of the dispatch timestamp. The customer app renders a 3D
+  follow-cam: animated route, moving provider marker, distance/heading
+  HUD, progress bar — with a SIMULATED LIVE FEED badge, and it ends itself
+  if the request status changes.
+- **Outages (demo):** extruded outage zones for the home-energy view,
+  labelled demo in data and legend.
+- **Privacy:** `/api/assist/live` gives public callers only status counts
+  and demand points rounded to ~100 m — no ids, labels, or fleet. The full
+  picture requires the admin key or a verified dispatcher JWT.
+
+To go truly live later: replace `providersSnapshot` /
+`providerPositionFor` with GPS telemetry (same response shapes), swap the
+client's bowed-line routes for Mapbox Directions, and — if sub-second
+updates matter — move polling to a Durable Object WebSocket. Nothing in
+the rendering layer would change.
+
 ## API
 
 | Route | Auth | Purpose |
@@ -53,6 +86,7 @@ npx wrangler d1 migrations apply drev-assist-db
 | `GET /api/assist/status/:id` | public (UUID) | Track a request |
 | `POST /api/assist/status/:id` | public (UUID) | Cancel `{ "action": "cancel" }` |
 | `GET /api/assist/services` | public | Service catalogue (single source of truth) |
+| `GET /api/assist/live` | public aggregates / admin or dispatcher for full | Realtime map picture (simulated provider feed, labelled) |
 | `GET /api/assist/health` | public | Liveness/config booleans (no secrets) |
 | `GET /api/assist/config` | public | Mapbox public token |
 | `GET/PATCH /api/assist/admin` | `ADMIN_KEY` bearer | Manager queue + status updates |
@@ -60,6 +94,25 @@ npx wrangler d1 migrations apply drev-assist-db
 | `GET/PATCH /api/assist/profile` | customer JWT | Profile |
 | `GET/POST/DELETE /api/assist/vehicles`, `/homes` | customer JWT | Saved vehicles / homes |
 | `POST /api/assist/checkout`, `/webhook` | — | Membership billing (optional) |
+
+## Mobile & performance
+
+The app must load on any phone, including low-end Android on a weak
+connection:
+
+- **Nothing render-blocking in `<head>`.** Mapbox GL + Geocoder load
+  dynamically with a 9-second timeout; boot runs at `DOMContentLoaded`,
+  never on `window.load`. First paint is ~26 KB of HTML + local CSS.
+- **Device tiers.** Capability detection (WebGL probe, `deviceMemory`,
+  cores, coarse pointer, Save-Data, reduced motion) picks a low-power
+  profile: no antialiasing, 32° pitch, pixel ratio 1, no 3D buildings/
+  fog/terrain, reduced backdrop-blur — the usual mobile freeze culprits.
+- **No-map mode.** If WebGL is off, the CDN dies, or no token is set, the
+  request flow still works: type an address or use GPS, submit as normal.
+- **Intro splash** is branded, skippable by tap, auto-dismisses when the
+  app is ready, and has a 2.6 s hard cap so it can never trap a stranded
+  user. It also surfaces a 911 link.
+- The manager map lazy-loads after login with the same tiering.
 
 ## Security model
 

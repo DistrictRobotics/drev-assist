@@ -51,5 +51,19 @@ test('schema and migrations cover every table the code writes to', () => {
     assert.ok(migration.includes(table), `0003 migration missing ${table}`);
   }
   assert.ok(existsSync(new URL('../tools/assist-standalone-test.mjs', import.meta.url)));
+  assert.ok(existsSync(new URL('../js/live-data.js', import.meta.url)));
+  assert.ok(existsSync(new URL('../functions/api/assist/live.js', import.meta.url)));
   assert.ok(existsSync(new URL('../.dev.vars.example', import.meta.url)));
+});
+
+test('realtime layer is wired into both apps and labelled simulated', () => {
+  const idx = read('index.html');
+  const mgr = read('manager.html');
+  const app = read('js/assist-app.js');
+  const man = read('js/manager.js');
+  assert.ok(idx.includes('id="tracking-hud"') && idx.includes('js/live-data.js'));
+  assert.ok(mgr.includes('id="dispatch-map"') && mgr.includes('id="time-slider"') && mgr.includes('js/live-data.js'));
+  assert.ok(app.includes('startLiveTracking') && app.includes('SIMULATED LIVE FEED'));
+  assert.ok(man.includes('initDispatchMap') && man.includes('demandFrame'));
+  assert.ok(!man.includes('setHTML'), 'map popups must use DOM, not HTML strings');
 });

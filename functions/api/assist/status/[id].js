@@ -6,6 +6,7 @@
    requires (provider label / scheduled window once dispatched).
 */
 import { json, err, handleOptions, parseJsonBody, isUuid, rateLimit, canTransition } from '../_shared.js';
+import { providerPositionFor } from '../_live-sim.js';
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -25,7 +26,7 @@ export async function onRequest(context) {
   if (!id || !isUuid(id)) return err('Invalid request ID.', 'INVALID_ID', 400, opts);
 
   const row = await db.prepare(
-    `SELECT id, category, service_type, status, requested_at, updated_at, provider_label, scheduled_window
+    `SELECT id, category, service_type, status, requested_at, updated_at, provider_label, scheduled_window, location_lat, location_lng
      FROM assist_service_requests WHERE id = ?`,
   ).bind(id).first();
   if (!row) return err('Request not found.', 'NOT_FOUND', 404, opts);
@@ -59,6 +60,7 @@ export async function onRequest(context) {
       ...(row.status === 'dispatched' || row.status === 'complete'
         ? { providerLabel: row.provider_label || null, scheduledWindow: row.scheduled_window || null }
         : {}),
+      ...(row.status === 'dispatched' ? { providerFeed: providerPositionFor(row) } : {}),
       cancellable: canTransition(row.status, 'cancelled'),
     },
   }, 200, opts);

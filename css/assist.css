@@ -939,3 +939,109 @@ svg { display: block; flex-shrink: 0; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ── Live tracking HUD ────────────────────────────────── */
+.tracking-hud {
+  position: fixed; z-index: 20;
+  top: calc(env(safe-area-inset-top, 0px) + 74px);
+  right: 18px; width: min(300px, calc(100vw - 130px));
+  background: rgba(7,15,27,.92); border: 1px solid var(--border-hi);
+  border-radius: var(--radius); padding: 14px 16px;
+  backdrop-filter: blur(16px); box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+.th-badge {
+  display: inline-block; font: 700 8px Orbitron, sans-serif; letter-spacing: 1.5px;
+  color: #ffd93d; border: 1px solid rgba(255,217,61,.4); background: rgba(255,217,61,.08);
+  padding: 3px 8px; border-radius: 100px; margin-bottom: 8px;
+}
+.th-title { font: 700 13px Orbitron, sans-serif; letter-spacing: 1px; color: var(--text); }
+.th-meta { font-size: 13px; color: var(--text-2); margin-top: 4px; line-height: 1.45; }
+.th-progress { height: 4px; background: var(--surface-2); border-radius: 2px; margin: 10px 0; overflow: hidden; }
+.th-progress-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width .6s ease; }
+.th-exit { width: 100%; }
+#btn-live-track { margin-top: 10px; border-color: rgba(255,217,61,.5); color: #ffd93d; background: rgba(255,217,61,.07); }
+
+/* ── Intro splash ─────────────────────────────────────── */
+.intro {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; padding: 24px;
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(0,200,255,.22), transparent 60%),
+    radial-gradient(ellipse 70% 45% at 85% 110%, rgba(0,229,160,.10), transparent 60%),
+    linear-gradient(180deg, #050d1a 0%, #03080f 70%);
+  transition: opacity .55s ease, visibility .55s;
+}
+.intro::before {
+  content: ''; position: absolute; inset: 0; opacity: .5; pointer-events: none;
+  background-image: linear-gradient(rgba(0,200,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,200,255,.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 75%);
+          mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 75%);
+}
+.intro.done { opacity: 0; visibility: hidden; pointer-events: none; }
+.intro-inner { position: relative; text-align: center; max-width: 380px; width: 100%; animation: intro-rise .6s cubic-bezier(.22,.8,.25,1); }
+@keyframes intro-rise { from { opacity: 0; transform: translateY(18px); } }
+.intro-mark { position: relative; width: 92px; height: 92px; margin: 0 auto 22px; display: grid; place-items: center; color: var(--bg); }
+.intro-mark svg { position: relative; z-index: 1; color: #031018; }
+.intro-mark::after { content: ''; position: absolute; inset: 14px; border-radius: 50%; background: linear-gradient(145deg, #2be9ff, #00c8ff 55%, #0088bb); box-shadow: 0 0 44px rgba(0,200,255,.55), 0 10px 30px rgba(0,0,0,.5); }
+.intro-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid transparent; border-top-color: var(--accent); border-right-color: rgba(0,200,255,.35); animation: intro-spin 1.6s linear infinite; }
+@keyframes intro-spin { to { transform: rotate(360deg); } }
+.intro-word { font: 900 30px/1 Orbitron, sans-serif; letter-spacing: 5px; color: var(--text); }
+.intro-word span { color: var(--accent); }
+.intro-word em { font-style: normal; font-weight: 400; opacity: .75; }
+.intro-tag { margin: 12px auto 18px; font-size: 16px; line-height: 1.5; color: var(--text-2); max-width: 300px; }
+.intro-chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
+.intro-chips span { font: 600 8px Orbitron, sans-serif; letter-spacing: 1.2px; color: var(--text-2); border: 1px solid var(--border-hi); border-radius: 100px; padding: 6px 11px; background: rgba(7,15,27,.6); }
+.intro-cta {
+  width: 100%; padding: 17px; border-radius: var(--radius);
+  background: var(--accent); color: var(--bg);
+  font: 700 12px Orbitron, sans-serif; letter-spacing: 2px;
+  box-shadow: 0 8px 34px rgba(0,200,255,.4); transition: filter .15s, transform .12s;
+}
+.intro-cta:hover { filter: brightness(1.1); }
+.intro-cta:active { transform: scale(.985); }
+.intro-link { display: block; margin: 14px auto 0; font: 600 10px Orbitron, sans-serif; letter-spacing: 1.5px; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+.intro-link:hover { color: var(--accent); }
+.intro-progress { height: 3px; border-radius: 2px; background: rgba(255,255,255,.07); margin: 26px auto 0; overflow: hidden; max-width: 220px; }
+.intro-progress i { display: block; height: 100%; width: 40%; background: var(--accent); border-radius: 2px; animation: intro-load 1.15s ease-in-out infinite alternate; }
+@keyframes intro-load { from { transform: translateX(-60%);} to { transform: translateX(320%);} }
+.intro-911 { margin-top: 16px; font-size: 13px; color: var(--text-3); }
+.intro-911 a { color: var(--warn); font-weight: 700; text-decoration: none; }
+
+/* ── No-map fallback card ─────────────────────────────── */
+.map-fallback {
+  position: fixed; z-index: 6;
+  top: calc(env(safe-area-inset-top, 0px) + 76px);
+  left: 18px; right: 18px; max-width: 420px;
+  background: rgba(7,15,27,.96); border: 1px solid var(--border-hi);
+  border-radius: var(--radius-lg); padding: 18px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+  display: flex; flex-direction: column; gap: 9px;
+}
+.mf-title { font: 700 11px Orbitron, sans-serif; letter-spacing: 2px; color: #ffd93d; }
+.mf-text { font-size: 14px; line-height: 1.55; color: var(--text-2); }
+.mf-btn { align-self: flex-start; }
+
+/* ── Mobile performance tier ──────────────────────────── */
+/* Cap expensive GPU compositing on small / low-power screens: big
+   backdrop blurs + pulsing shadows are the usual mobile freeze culprits. */
+@media (max-width: 640px) {
+  .sheet { backdrop-filter: blur(8px); }
+  .icon-btn, .mode-pill, .fab { backdrop-filter: blur(6px); }
+  .confirm-overlay, .profile-backdrop { backdrop-filter: blur(4px); }
+  .tracking-hud { left: 18px; right: 18px; width: auto; top: calc(env(safe-area-inset-top, 0px) + 122px); }
+  .map-vignette { opacity: .65; }
+}
+body.low-power .sheet, body.low-power .fab, body.low-power .icon-btn,
+body.low-power .mode-pill, body.low-power .tracking-hud { backdrop-filter: none; }
+body.low-power .pin-ring { animation: none; opacity: .35; }
+body.low-power .pin-body { box-shadow: 0 0 0 2px rgba(0,200,255,.35); }
+body.low-power .map-vignette { opacity: .5; }
+body.low-power .intro-ring, body.low-power .intro-progress i { animation-duration: 3s; }
+/* When there is no map, the sheet is the whole experience */
+body.no-map #map, body.no-map .pickup-pin, body.no-map .map-fabs, body.no-map .map-vignette { display: none !important; }
+body.no-map { background: linear-gradient(180deg, #071224, #03080f); }
+
+@media (prefers-reduced-motion: reduce) {
+  .intro-inner, .intro-ring, .intro-progress i { animation: none !important; }
+}
