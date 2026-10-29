@@ -1,0 +1,21 @@
+# Copy to .dev.vars for local `wrangler pages dev` (never commit .dev.vars).
+# Production values belong in Cloudflare Pages → Settings → Environment variables.
+
+# Public Mapbox token (restrict by URL in the Mapbox dashboard).
+MAPBOX_TOKEN=
+
+# Manager dashboard key — at least 16 characters, long random string.
+ADMIN_KEY=
+
+# Account sign-in (optional until you wire an IdP). JWTs are verified
+# against this issuer's JWKS; endpoints fail closed when unset.
+AUTH_ISSUER=
+AUTH_JWKS_URL=
+AUTH_AUDIENCE=
+
+# Extra origins allowed to call the API cross-origin (comma-separated).
+ALLOWED_ORIGINS=
+
+# Payments (optional in this repo's scope — see checkout.js / webhook.js).
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=

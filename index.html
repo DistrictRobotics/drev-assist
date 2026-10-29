@@ -4,16 +4,19 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#03080f"/>
+<meta name="description" content="DREV Assist — EV and roadside help plus home charging support in the Charlotte, NC area. Request a review; a dispatcher confirms before anything is dispatched."/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2303080f'/%3E%3Cpath d='M18 4 8 18h6l-2 10L22 14h-6l2-10z' fill='%2300c8ff'/%3E%3C/svg%3E"/>
 <!-- content is injected at the edge by functions/_middleware.js from MAPBOX_TOKEN -->
 <meta name="mapbox-token" content=""/>
 <title>DREV Assist</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet"/>
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
-<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
-<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<!-- Mapbox GL + Geocoder are loaded dynamically by js/assist-app.js (with a
+     timeout and a no-map fallback) so a slow CDN can never freeze first paint. -->
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <link rel="stylesheet" href="css/assist.css"/>
 </head>
 <body>
@@ -42,8 +45,36 @@
   <symbol id="ic-satellite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m3.5 11.5 1 1m6-9 1 1M5.5 9.5l9-9m-9 14 9-9"/><path d="M9.5 5.5c4-4 9-4.5 12.5-1S18 14 14 18"/></symbol>
 </svg>
 
+<!-- Intro splash -->
+<div class="intro" id="intro" role="dialog" aria-label="Welcome to DREV Assist">
+  <div class="intro-inner">
+    <div class="intro-mark">
+      <span class="intro-ring"></span>
+      <svg width="34" height="34"><use href="#ic-bolt"/></svg>
+    </div>
+    <div class="intro-word"><span>D</span>REV<em> ASSIST</em></div>
+    <p class="intro-tag">EV charge, roadside help &amp; home energy — Charlotte, NC</p>
+    <div class="intro-chips">
+      <span>EV Charge</span><span>Jump Start</span><span>Tow</span><span>Home Charging</span>
+    </div>
+    <button class="intro-cta" id="intro-help">GET HELP NOW</button>
+    <button class="intro-link" id="intro-track">Track an existing request</button>
+    <div class="intro-progress" aria-hidden="true"><i></i></div>
+    <p class="intro-911">Emergency? <a href="tel:911">Call 911</a> first.</p>
+  </div>
+</div>
+
 <!-- Map fills viewport -->
 <div id="map" role="region" aria-label="Pickup location map"></div>
+
+<!-- No-map fallback: manual pickup entry when WebGL/Mapbox is unavailable -->
+<div class="map-fallback hidden" id="map-fallback">
+  <div class="mf-title">MAP UNAVAILABLE</div>
+  <p class="mf-text" id="mf-text">Your device could not load the interactive map. You can still request help — just tell us where you are.</p>
+  <label class="form-label" for="fallback-addr">WHERE ARE YOU?</label>
+  <input class="form-input" id="fallback-addr" type="text" placeholder="Street address, cross-streets, or landmark" maxlength="300" autocomplete="street-address"/>
+  <button class="track-go-btn mf-btn" id="fallback-locate" type="button">USE MY LOCATION</button>
+</div>
 
 <!-- Vignette overlay -->
 <div class="map-vignette" aria-hidden="true"></div>
@@ -82,6 +113,15 @@
   </div>
   <div class="pin-stem"></div>
   <div class="pin-dot"></div>
+</div>
+
+<!-- Live tracking HUD (shown while following a dispatched provider) -->
+<div class="tracking-hud hidden" id="tracking-hud" role="status" aria-live="polite">
+  <div class="th-badge" id="th-badge">SIMULATED LIVE FEED</div>
+  <div class="th-title" id="th-title">Provider en route</div>
+  <div class="th-meta" id="th-meta">Locating provider…</div>
+  <div class="th-progress"><div class="th-progress-bar" id="th-bar"></div></div>
+  <button class="track-go-btn th-exit" id="th-exit" type="button">EXIT TRACKING</button>
 </div>
 
 <!-- Geocoder search -->
@@ -217,14 +257,42 @@
       <span><strong>Not emergency services.</strong> Call 911 for injuries. DREV reviews scene-safety logistics only.</span>
     </div>
 
+    <!-- Service-specific guidance (text set from the shared catalogue) -->
+    <p class="svc-guidance" id="svc-guidance" aria-live="polite"></p>
+
     <!-- Form -->
     <div class="req-form" id="req-form">
 
+      <!-- Contact — a dispatcher must be able to reach you -->
+      <div class="form-group">
+        <label class="form-label" for="inp-name">YOUR NAME *</label>
+        <input class="form-input" id="inp-name" type="text" placeholder="First and last name" autocomplete="name" maxlength="100"/>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label" for="inp-phone">PHONE *</label>
+          <input class="form-input" id="inp-phone" type="tel" placeholder="704-555-0123" autocomplete="tel" maxlength="32" inputmode="tel"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inp-email">EMAIL (OPTIONAL)</label>
+          <input class="form-input" id="inp-email" type="email" placeholder="you@example.com" autocomplete="email" maxlength="254" inputmode="email"/>
+        </div>
+      </div>
+
       <!-- Roadside-specific fields -->
       <div id="roadside-fields">
+        <!-- EV-native status tile: color conveys state at a glance -->
+        <div class="ev-tile" id="ev-tile">
+          <div class="ev-tile-head">
+            <span class="ev-tile-label">BATTERY</span>
+            <span class="ev-tile-pct" id="ev-pct">—</span>
+          </div>
+          <input class="ev-slider" id="inp-battery" type="range" min="0" max="100" step="5" value="35" aria-label="Battery percent"/>
+          <div class="ev-tile-sub" id="ev-sub">Slide to your charge level — helps the unit bring the right gear.</div>
+        </div>
         <div class="form-group">
-          <label class="form-label" for="inp-vehicle">VEHICLE</label>
-          <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off"/>
+          <label class="form-label" for="inp-vehicle">VEHICLE *</label>
+          <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off" maxlength="120"/>
         </div>
       </div>
 
@@ -260,7 +328,16 @@
 
       <div class="form-group">
         <label class="form-label" for="inp-notes">SITUATION</label>
-        <textarea class="form-input form-textarea" id="inp-notes" placeholder="Battery %, warning lights, road conditions…"></textarea>
+        <textarea class="form-input form-textarea" id="inp-notes" placeholder="Battery %, warning lights, road conditions…" maxlength="2000"></textarea>
+        <div class="field-count"><span id="notes-count">0</span>/2000</div>
+      </div>
+
+      <div class="form-group form-group--check">
+        <label class="check-label">
+          <input type="checkbox" id="chk-location" class="check-input"/>
+          <span class="check-box"><svg width="11" height="11"><use href="#ic-check"/></svg></span>
+          <span class="check-text">The pin on the map is where help should come *</span>
+        </label>
       </div>
 
       <div class="form-group form-group--check">
@@ -271,10 +348,12 @@
         </label>
       </div>
 
+      <p class="form-error hidden" id="form-error" role="alert"></p>
+
     </div>
 
     <button class="sheet-cta" id="sheet-cta">
-      <span id="cta-label">REQUEST REVIEW</span>
+      <span id="cta-label">REVIEW REQUEST</span>
       <svg width="16" height="16"><use href="#ic-arrow-right"/></svg>
     </button>
 
@@ -283,17 +362,36 @@
   </div>
 </section>
 
-<!-- Confirmation overlay -->
-<div class="confirm-overlay hidden" id="confirm-overlay">
-  <div class="confirm-card">
-    <div class="confirm-ring">
-      <svg width="26" height="26"><use href="#ic-check"/></svg>
+<!-- Review-before-send dialog: the exact frozen snapshot that will be sent -->
+<div class="confirm-overlay hidden" id="review-overlay">
+  <div class="confirm-card review-card" role="dialog" aria-modal="true" aria-labelledby="review-title">
+    <div class="confirm-title" id="review-title">REVIEW YOUR REQUEST</div>
+    <dl class="review-list" id="review-list"></dl>
+    <p class="form-error hidden" id="review-error" role="alert"></p>
+    <div class="review-actions">
+      <button class="plan-btn plan-btn--ghost" id="review-back">BACK</button>
+      <button class="sheet-cta review-send" id="review-send"><span id="review-send-label">SEND REQUEST</span></button>
     </div>
-    <div class="confirm-title">REQUEST SUBMITTED</div>
-    <div class="confirm-body">Your review request has been received. A dispatcher will evaluate and respond within the hour.</div>
-    <div class="confirm-ref" id="confirm-id">REQ-XXXXXXXX</div>
-    <div class="confirm-notice">Review request — not a confirmed job or guaranteed ETA.</div>
-    <button class="sheet-cta" id="confirm-close">TRACK STATUS</button>
+    <div class="confirm-notice">Sending asks a dispatcher to review — it is not a confirmed job or guaranteed ETA.</div>
+  </div>
+</div>
+
+<!-- Result overlay — `sent` state only appears after the server confirms (201).
+     `not-sent` state is visually distinct and never claims the request was received. -->
+<div class="confirm-overlay hidden" id="confirm-overlay">
+  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="confirm-ring" id="confirm-ring">
+      <svg width="26" height="26" id="confirm-icon"><use href="#ic-check" id="confirm-icon-use"/></svg>
+    </div>
+    <div class="confirm-title" id="confirm-title">REQUEST SUBMITTED</div>
+    <div class="confirm-body" id="confirm-body">Your review request has been received. A dispatcher will evaluate and respond — usually within the hour during operating hours.</div>
+    <div class="confirm-ref" id="confirm-id">—</div>
+    <button class="track-go-btn confirm-copy" id="confirm-copy" type="button">COPY REFERENCE</button>
+    <div class="confirm-notice" id="confirm-notice">Review request — not a confirmed job or guaranteed ETA. Save this reference to track or cancel.</div>
+    <div class="review-actions">
+      <button class="plan-btn plan-btn--ghost hidden" id="confirm-retry">TRY AGAIN</button>
+      <button class="sheet-cta review-send" id="confirm-close"><span id="confirm-close-label">TRACK STATUS</span></button>
+    </div>
   </div>
 </div>
 
@@ -318,6 +416,8 @@
         <button class="track-go-btn" id="btn-track">CHECK</button>
       </div>
       <div class="track-result hidden" id="track-result"></div>
+      <button class="track-go-btn hidden" id="btn-live-track" type="button">VIEW LIVE TRACKING</button>
+      <button class="track-go-btn hidden" id="btn-cancel-req" type="button">CANCEL THIS REQUEST</button>
     </div>
 
     <div class="profile-rule"></div>
@@ -334,7 +434,7 @@
             <div class="plan-perk">2 roadside events/yr</div>
             <div class="plan-perk">Priority dispatch</div>
           </div>
-          <button class="plan-btn plan-btn--ghost" id="btn-plan-essential" onclick="subscribePlan('essential')">SUBSCRIBE</button>
+          <button class="plan-btn plan-btn--ghost" id="btn-plan-essential" data-plan="essential">SUBSCRIBE</button>
         </div>
 
         <div class="plan-card plan-card--hi">
@@ -346,11 +446,11 @@
             <div class="plan-perk">Home energy consult</div>
             <div class="plan-perk">V2H planning incl.</div>
           </div>
-          <button class="plan-btn" id="btn-plan-flex" onclick="subscribePlan('flex')">SUBSCRIBE</button>
+          <button class="plan-btn" id="btn-plan-flex" data-plan="flex">SUBSCRIBE</button>
         </div>
 
       </div>
-      <p class="profile-body-text plan-note hidden" id="plan-note" style="margin-top:10px;font-size:12px"></p>
+      <p class="profile-body-text plan-note hidden" id="plan-note"></p>
     </div>
 
     <div class="profile-rule"></div>
@@ -367,6 +467,7 @@
 
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
 
+<script src="js/live-data.js"></script>
 <script src="js/assist-app.js"></script>
 </body>
 </html>

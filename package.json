@@ -1,0 +1,12 @@
+{
+  "name": "drev-assist",
+  "private": true,
+  "type": "module",
+  "description": "DREV Assist — Cloudflare Pages app (vanilla JS, no build step)",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node tools/assist-standalone-test.mjs",
+    "dev": "npx wrangler pages dev . --ip 0.0.0.0 --port 8788"
+  },
+  "engines": { "node": ">=20" }
+}
