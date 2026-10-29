@@ -75,6 +75,10 @@ function toast(msg, isError = false) {
 }
 
 function renderCard(r) {
+  const canAccept = r.status === 'submitted' || r.status === 'reviewed';
+  const acceptBtn = canAccept
+    ? `<button class="act-btn a-accept" data-accept="${escapeHtml(r.id)}">ACCEPT &amp; DISPATCH</button>`
+    : '';
   const nexts = (nextMap[r.status] || []).map(s => {
     const cls = s === 'dispatched' ? 'a-dispatch' : s === 'complete' ? 'a-complete' : s === 'cancelled' ? 'a-cancel' : '';
     return `<button class="act-btn ${cls}" data-id="${escapeHtml(r.id)}" data-status="${s}">${s.toUpperCase()}</button>`;
@@ -119,7 +123,7 @@ function renderCard(r) {
     </div>
     <div class="req-right">
       <div class="status-badge s-${escapeHtml(r.status)}">${escapeHtml(String(r.status || '').toUpperCase())}</div>
-      ${nexts ? `<div class="req-actions">${nexts}</div>` : ''}
+      ${(acceptBtn || nexts) ? `<div class="req-actions">${acceptBtn}${nexts}</div>` : ''}
     </div>
     ${detail}
   </div>`;
@@ -201,6 +205,27 @@ async function patchRequest(payload, okMsg) {
   updateCounts(allRequests);
   applyFilter(activeFilter);
   toast(okMsg);
+}
+
+/* Tech accepts a job: persist reviewed (if new) then dispatched + tech
+   name to D1 via the admin API. The customer app polls the status API,
+   so its map picks this up within seconds — no local-only state. */
+async function acceptRequest(id, btn) {
+  const tech = ($('tech-name').value || '').trim() || 'DREV Field Tech';
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'DISPATCHING…';
+  try {
+    const req = allRequests.find(r => r.id === id);
+    if (req && req.status === 'submitted') {
+      await patchRequest({ id, status: 'reviewed', note: `Accepted by ${tech}` }, 'ACCEPTED');
+    }
+    await patchRequest({ id, status: 'dispatched', providerLabel: tech, note: `Dispatched to ${tech}` }, 'DISPATCHED → CUSTOMER MAP UPDATING');
+  } catch (e) {
+    toast('ERROR: ' + e.message, true);
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 async function updateStatus(id, status, btn) {
@@ -486,6 +511,7 @@ async function doLogin() {
     updateCounts(allRequests);
     applyFilter('all');
     initDispatchMap();
+    syncAutoRefresh();
   } catch (e) {
     adminKey = '';
     $('login-err').textContent = e.message.includes('expired') || e.message.includes('Unauthorized')
@@ -510,10 +536,11 @@ $('search-input').addEventListener('input', e => {
   searchDebounce = setTimeout(() => { searchTerm = e.target.value.trim(); applyFilter(activeFilter); }, 150);
 });
 
-$('auto-refresh').addEventListener('change', e => {
+function syncAutoRefresh() {
   if (autoTimer) clearInterval(autoTimer);
-  autoTimer = e.target.checked ? setInterval(() => { if (adminKey) loadRequests(); }, 30000) : null;
-});
+  autoTimer = $('auto-refresh').checked ? setInterval(() => { if (adminKey) loadRequests(); }, 30000) : null;
+}
+$('auto-refresh').addEventListener('change', syncAutoRefresh);
 
 /* ── Card actions: expand, status, save details (delegated) ── */
 $('req-list').addEventListener('click', async e => {
@@ -529,6 +556,8 @@ $('req-list').addEventListener('click', async e => {
     } catch (err) { toast('ERROR: ' + err.message, true); }
     return;
   }
+  const accept = e.target.closest('[data-accept]');
+  if (accept) { acceptRequest(accept.dataset.accept, accept); return; }
   const btn = e.target.closest('.act-btn');
   if (btn) { updateStatus(btn.dataset.id, btn.dataset.status, btn); return; }
   if (e.target.closest('a, input, .req-detail')) return;

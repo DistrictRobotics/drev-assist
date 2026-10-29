@@ -570,6 +570,8 @@ async function checkStatus() {
     if (!res.ok) { show(res.status === 404 ? 'Request not found. Check the ID.' : 'Could not check status right now.', 'track-err'); return; }
     const r = (await res.json()).request;
     trackedId = r.id;
+    trackedRequest = r;
+    startStatusWatcher(r.id, r.status);
     result.replaceChildren();
     const svc = document.createElement('span');
     svc.className = 'track-svc';
@@ -713,6 +715,54 @@ function stopLiveTracking() {
       try { if (map.getSource(id)) map.removeSource(id); } catch (_) {}
     }
   }
+}
+
+
+/* ── Status watcher: "push" to the customer map ───────────
+   Pages Functions have no socket to the browser, so after a confirmed
+   submission the app polls the status API (12s, paused while hidden).
+   When dispatch lands in D1, the customer's map reacts on its own:
+   banner, live-track button, and the provider follow-cam start.    */
+let statusWatcher = null;
+function startStatusWatcher(id, initialStatus = 'submitted') {
+  stopStatusWatcher();
+  if (!id || !UUID_RE.test(id)) return;
+  statusWatcher = { id, last: initialStatus, timer: null };
+  statusWatcher.timer = setInterval(async () => {
+    if (document.hidden || !statusWatcher) return;
+    try {
+      const res = await fetch(`/api/assist/status/${encodeURIComponent(statusWatcher.id)}`);
+      if (!res.ok) return;
+      const r = (await res.json()).request;
+      if (!r || r.status === statusWatcher.last) return;
+      statusWatcher.last = r.status;
+      onCustomerStatusUpdate(r);
+      if (r.status === 'complete' || r.status === 'cancelled') stopStatusWatcher();
+    } catch (_) { /* one missed poll is fine; the next one catches up */ }
+  }, 12000);
+}
+function stopStatusWatcher() {
+  if (statusWatcher?.timer) clearInterval(statusWatcher.timer);
+  statusWatcher = null;
+}
+function onCustomerStatusUpdate(r) {
+  trackedId = r.id;
+  trackedRequest = r;
+  const label = { reviewed: 'A dispatcher is reviewing your request', dispatched: 'Help is on the way', complete: 'Service complete — thank you', cancelled: 'Your request was cancelled' }[r.status] || `Status: ${r.status}`;
+  showBanner(r.providerLabel ? `${label} · ${r.providerLabel}` : label, r.status === 'dispatched' ? 'success' : 'info');
+  if (!$('confirm-overlay').classList.contains('hidden')) {
+    $('confirm-body').textContent = r.status === 'dispatched'
+      ? `${r.providerLabel || 'Your provider'} has been dispatched. Watch them approach on the map, or track any time with your reference.`
+      : label + '. You can track any time with your reference.';
+  }
+  if (r.status === 'dispatched') {
+    $('btn-live-track')?.classList.remove('hidden');
+    /* Land it on the map — unless the user is mid-review in a dialog. */
+    if (map && window.DrevLive && !tracking && $('review-overlay').classList.contains('hidden')) {
+      startLiveTracking(r);
+    }
+  }
+  if ((r.status === 'complete' || r.status === 'cancelled') && tracking) stopLiveTracking();
 }
 
 /* ── Membership checkout (handlers bound here, no inline onclick) ── */
@@ -921,6 +971,7 @@ async function sendRequest(snapshot) {
       closeOverlay($('review-overlay'));
       try { localStorage.setItem('drev-last-request', data.request.id); } catch (_) {}
       try { sessionStorage.removeItem('drev-assist-pending'); } catch (_) {}
+      startStatusWatcher(data.request.id, data.request.status || 'submitted');
       showResult({
         sent: true,
         title: 'REQUEST SUBMITTED',

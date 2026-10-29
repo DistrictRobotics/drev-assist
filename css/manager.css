@@ -410,3 +410,6 @@ body { font-family: Inter, system-ui, sans-serif; letter-spacing: -.011em; }
 .spinner { border-top-color: var(--accent); }
 .toast { border-color: var(--border-hi); background: var(--surface-2); font-family: Inter, sans-serif; }
 a { color: #aab2ff; }
+.tech-input { min-width: 170px; border-color: rgba(94,106,210,.45) !important; }
+.act-btn.a-accept { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.act-btn.a-accept:hover { filter: brightness(1.15); color: #fff; background: var(--accent); }
