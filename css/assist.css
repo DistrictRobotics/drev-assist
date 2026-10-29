@@ -445,6 +445,59 @@ svg { display: block; flex-shrink: 0; }
 .svc-card:hover .svc-name { color: var(--text); }
 .svc-card.active .svc-name { color: var(--text); }
 
+/* ── Service card video backgrounds ──────────────────── */
+.svc-card-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius);
+  opacity: .45;
+  transition: opacity .35s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.svc-card:hover .svc-card-video,
+.svc-card.active .svc-card-video { opacity: .85; }
+.svc-card-video-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, rgba(3,8,15,.35) 0%, rgba(3,8,15,.10) 100%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── Service card gradient placeholders (swap for real video when ready) ── */
+@keyframes svcGradientShift {
+  0%,100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.svc-card-gradient {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background-size: 250% 250%;
+  animation: svcGradientShift 7s ease infinite;
+  opacity: .45;
+  transition: opacity .35s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.svc-card:hover .svc-card-gradient,
+.svc-card.active .svc-card-gradient { opacity: .85; }
+/* per-service colour themes */
+.svc-gradient--fuel     { background-image: linear-gradient(135deg,#ff6b35,#f7c59f,#ff8c42,#ff6b35); }
+.svc-gradient--incident { background-image: linear-gradient(135deg,#7f0000,#c0392b,#e74c3c,#7f0000); }
+.svc-gradient--other    { background-image: linear-gradient(135deg,#1c2b3a,#3a5068,#2c3e50,#1c2b3a); }
+.svc-gradient--install  { background-image: linear-gradient(135deg,#003366,#0072ff,#00c6ff,#003366); }
+.svc-gradient--repair   { background-image: linear-gradient(135deg,#0a4a3a,#11998e,#38ef7d,#0a4a3a); }
+.svc-gradient--v2h      { background-image: linear-gradient(135deg,#1a0533,#4776e6,#8e54e9,#1a0533); }
+.svc-gradient--panel    { background-image: linear-gradient(135deg,#0a0a1a,#16213e,#0f3460,#0a0a1a); }
+.svc-gradient--outage   { background-image: linear-gradient(135deg,#7a4500,#f7971e,#ffd200,#7a4500); }
+.svc-gradient--home-other { background-image: linear-gradient(135deg,#0d2137,#1e4060,#4ca1af,#0d2137); }
+
 /* ── Sheet rule ───────────────────────────────────────── */
 .sheet-rule {
   height: 1px;
@@ -965,15 +1018,16 @@ svg { display: block; flex-shrink: 0; }
 .intro {
   position: fixed; inset: 0; z-index: 200;
   display: grid; place-items: center; padding: 24px;
+  /* DREV blue, same ground as the opening splash — this screen used to be
+     cyan on near-black, which read as a different product. */
   background:
-    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(0,200,255,.22), transparent 60%),
-    radial-gradient(ellipse 70% 45% at 85% 110%, rgba(0,229,160,.10), transparent 60%),
-    linear-gradient(180deg, #050d1a 0%, #03080f 70%);
+    radial-gradient(ellipse 100% 60% at 50% -5%, #1a63e8 0%, transparent 62%),
+    linear-gradient(180deg, #0f47b4 0%, #06306f 100%);
   transition: opacity .55s ease, visibility .55s;
 }
 .intro::before {
   content: ''; position: absolute; inset: 0; opacity: .5; pointer-events: none;
-  background-image: linear-gradient(rgba(0,200,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,200,255,.05) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
   background-size: 44px 44px;
   -webkit-mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 75%);
           mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 75%);
@@ -981,31 +1035,29 @@ svg { display: block; flex-shrink: 0; }
 .intro.done { opacity: 0; visibility: hidden; pointer-events: none; }
 .intro-inner { position: relative; text-align: center; max-width: 380px; width: 100%; animation: intro-rise .6s cubic-bezier(.22,.8,.25,1); }
 @keyframes intro-rise { from { opacity: 0; transform: translateY(18px); } }
-.intro-mark { position: relative; width: 92px; height: 92px; margin: 0 auto 22px; display: grid; place-items: center; color: var(--bg); }
-.intro-mark svg { position: relative; z-index: 1; color: #031018; }
-.intro-mark::after { content: ''; position: absolute; inset: 14px; border-radius: 50%; background: linear-gradient(145deg, #2be9ff, #00c8ff 55%, #0088bb); box-shadow: 0 0 44px rgba(0,200,255,.55), 0 10px 30px rgba(0,0,0,.5); }
-.intro-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid transparent; border-top-color: var(--accent); border-right-color: rgba(0,200,255,.35); animation: intro-spin 1.6s linear infinite; }
-@keyframes intro-spin { to { transform: rotate(360deg); } }
-.intro-word { font: 900 30px/1 Orbitron, sans-serif; letter-spacing: 5px; color: var(--text); }
-.intro-word span { color: var(--accent); }
-.intro-word em { font-style: normal; font-weight: 400; opacity: .75; }
-.intro-tag { margin: 12px auto 18px; font-size: 16px; line-height: 1.5; color: var(--text-2); max-width: 300px; }
+/* The real brand marks, cut out of the collateral sheet, rather than a
+   generic bolt glyph and typed-out letterforms. */
+.intro-brand-mark { display: block; width: 88px; height: auto; margin: 0 auto 14px; filter: drop-shadow(0 6px 20px rgba(0,0,0,.42)); }
+.intro-brand-word { display: block; width: min(250px, 74%); height: auto; margin: 0 auto; filter: drop-shadow(0 4px 16px rgba(0,0,0,.38)); }
+.intro-tag { margin: 16px auto 18px; font-size: 16px; line-height: 1.5; color: #d8e7ff; max-width: 300px; }
 .intro-chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
-.intro-chips span { font: 600 8px Orbitron, sans-serif; letter-spacing: 1.2px; color: var(--text-2); border: 1px solid var(--border-hi); border-radius: 100px; padding: 6px 11px; background: rgba(7,15,27,.6); }
+.intro-chips span { font: 600 8px Orbitron, sans-serif; letter-spacing: 1.2px; color: #eaf2ff; border: 1px solid rgba(255,255,255,.3); border-radius: 100px; padding: 6px 11px; background: rgba(255,255,255,.1); }
+/* White button on the blue ground: the highest-contrast pairing available
+   here, and it keeps the accent cyan out of the brand screen. */
 .intro-cta {
   width: 100%; padding: 17px; border-radius: var(--radius);
-  background: var(--accent); color: var(--bg);
+  background: #ffffff; color: #0a3fa8;
   font: 700 12px Orbitron, sans-serif; letter-spacing: 2px;
-  box-shadow: 0 8px 34px rgba(0,200,255,.4); transition: filter .15s, transform .12s;
+  box-shadow: 0 8px 30px rgba(0,0,0,.34); transition: filter .15s, transform .12s;
 }
-.intro-cta:hover { filter: brightness(1.1); }
+.intro-cta:hover { filter: brightness(.95); }
 .intro-cta:active { transform: scale(.985); }
-.intro-link { display: block; margin: 14px auto 0; font: 600 10px Orbitron, sans-serif; letter-spacing: 1.5px; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
-.intro-link:hover { color: var(--accent); }
-.intro-progress { height: 3px; border-radius: 2px; background: rgba(255,255,255,.07); margin: 26px auto 0; overflow: hidden; max-width: 220px; }
-.intro-progress i { display: block; height: 100%; width: 40%; background: var(--accent); border-radius: 2px; animation: intro-load 1.15s ease-in-out infinite alternate; }
+.intro-link { display: block; margin: 14px auto 0; font: 600 10px Orbitron, sans-serif; letter-spacing: 1.5px; color: #cfe0ff; text-decoration: underline; text-underline-offset: 3px; }
+.intro-link:hover { color: #ffffff; }
+.intro-progress { height: 3px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 26px auto 0; overflow: hidden; max-width: 220px; }
+.intro-progress i { display: block; height: 100%; width: 40%; background: #ffffff; border-radius: 2px; animation: intro-load 1.15s ease-in-out infinite alternate; }
 @keyframes intro-load { from { transform: translateX(-60%);} to { transform: translateX(320%);} }
-.intro-911 { margin-top: 16px; font-size: 13px; color: var(--text-3); }
+.intro-911 { margin-top: 16px; font-size: 13px; color: #bed2f0; }
 .intro-911 a { color: var(--warn); font-weight: 700; text-decoration: none; }
 
 /* ── No-map fallback card ─────────────────────────────── */
@@ -1041,6 +1093,28 @@ body.low-power .intro-ring, body.low-power .intro-progress i { animation-duratio
 /* When there is no map, the sheet is the whole experience */
 body.no-map #map, body.no-map .pickup-pin, body.no-map .map-fabs, body.no-map .map-vignette { display: none !important; }
 body.no-map { background: linear-gradient(180deg, #071224, #03080f); }
+
+/* ── Compact phone: fits everything above the fold at 375×667 ─────────── */
+@media (max-width: 430px) {
+  .intro { padding: 16px; }
+  .intro-brand-mark { width: 64px; margin-bottom: 10px; }
+  .intro-brand-word { width: min(200px, 68%); }
+  .intro-tag { font-size: 13px; margin: 10px auto 12px; }
+  .intro-chips { gap: 5px; margin-bottom: 16px; }
+  .intro-chips span { font-size: 7px; padding: 5px 9px; }
+  .intro-cta { padding: 14px; font-size: 11px; letter-spacing: 1.6px; }
+  .intro-link { margin-top: 10px; font-size: 9px; }
+  .intro-progress { margin-top: 18px; }
+  .intro-911 { margin-top: 12px; font-size: 12px; }
+}
+/* Very short phones (SE-size, 568px tall) — hide progress bar, shrink 911 */
+@media (max-height: 620px) {
+  .intro-progress { display: none; }
+  .intro-brand-mark { width: 54px; margin-bottom: 8px; }
+  .intro-chips { margin-bottom: 12px; }
+  .intro-cta { padding: 12px; }
+  .intro-tag { margin: 8px auto 10px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .intro-inner, .intro-ring, .intro-progress i { animation: none !important; }
