@@ -61,10 +61,34 @@
   const lerp = (a, b, t) => a + (b - a) * t;
   const easeInOut = t => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
+  /* ── Mapbox Directions road-route cache ───────────────── */
+  const _routeCache = new Map();
+
+  async function fetchRoadRoute(from, to, token) {
+    if (!token) return null;
+    const key = `${from.lng.toFixed(4)},${from.lat.toFixed(4)}->${to.lng.toFixed(4)},${to.lat.toFixed(4)}`;
+    if (_routeCache.has(key)) return _routeCache.get(key);
+    try {
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${from.lng},${from.lat};${to.lng},${to.lat}?geometries=geojson&overview=full&access_token=${token}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.routes || !data.routes[0]) return null;
+      const pts = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lng, lat }));
+      let total = 0;
+      pts.forEach((p, i) => {
+        if (i > 0) total += haversineKm(pts[i - 1], p);
+        p.distKm = total;
+      });
+      pts.totalKm = total;
+      _routeCache.set(key, pts);
+      return pts;
+    } catch (_) { return null; }
+  }
+
   /**
-   * A gently bowed route between two points (reads as street-following at
-   * demo zoom levels; a real deployment swaps this for Mapbox Directions).
-   * Returns [{lng, lat}, …] with cumulative distances.
+   * A gently bowed route between two points — used as synchronous fallback
+   * while a real Mapbox Directions route is being fetched.
    */
   function routeBetween(from, to, seed = 1) {
     const rand = mulberry32(seed);
@@ -110,7 +134,7 @@
   ];
   const DEMO_SPEED = 10; // time acceleration so movement is visible in demos
 
-  function createSimulation(seed = 42) {
+  function createSimulation(seed = 42, mapboxToken = null) {
     const rand = mulberry32(seed);
     const providers = PROVIDER_SEED.map((p, i) => {
       const home = HOTSPOTS[p.home];
@@ -121,21 +145,36 @@
         from: { lng: home.lng, lat: home.lat },
         to: { lng: target.lng, lat: target.lat, name: target.name },
         progress: rand() * 0.6,
-        route: routeBetween(home, target, seed + i),
+        route: routeBetween(home, target, seed + i), // bow-curve until road route loads
         jobService: p.skills[i % p.skills.length],
         dwellSec: 0,
       };
     });
+
+    // Pre-fetch real road routes for all providers (replaces bow-curves once loaded)
+    if (mapboxToken) {
+      providers.forEach(pv => {
+        fetchRoadRoute(pv.from, pv.to, mapboxToken).then(pts => {
+          if (pts) pv.route = pts;
+        });
+      });
+    }
 
     function retarget(pv, idx) {
       const rand2 = mulberry32(seed + idx * 97 + Math.floor(pv.progress * 1000) + providers.length);
       const dest = HOTSPOTS[Math.floor(rand2() * HOTSPOTS.length)];
       pv.from = { ...pv.to };
       pv.to = { lng: dest.lng, lat: dest.lat, name: dest.name };
-      pv.route = routeBetween(pv.from, pv.to, seed + idx * 13 + dest.lng * 1000);
+      pv.route = routeBetween(pv.from, pv.to, seed + idx * 13 + dest.lng * 1000); // bow-curve until road fetches
       pv.progress = 0;
       pv.status = pv.status === 'available' ? 'en_route' : pv.status;
       pv.jobService = pv.skills[Math.floor(rand2() * pv.skills.length)];
+      // Async upgrade to real road route
+      if (mapboxToken) {
+        fetchRoadRoute(pv.from, pv.to, mapboxToken).then(pts => {
+          if (pts) pv.route = pts;
+        });
+      }
     }
 
     return {

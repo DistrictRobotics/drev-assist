@@ -150,6 +150,168 @@ let tracking = null;          // active live-tracking session
 let lastFocused = null;
 
 /* ── Map ────────────────────────────────────────────────── */
+/* ── Ambient fleet layer ────────────────────────────────────────────
+   Shows DREV service units on the idle customer map the moment it loads.
+   Renders top-down car icons that rotate with the vehicle bearing, exactly
+   like Uber's driver view. Hidden during active live-tracking so the
+   dispatched-provider layer takes full focus.
+   Simulation is seeded + deterministic so every session looks the same.   */
+let _fleetSim = null;
+let _fleetInterval = null;
+
+/* Draw a top-down car silhouette. Returns { width, height, data } — the
+   format Mapbox GL JS accepts for map.addImage() in all v2/v3 builds.
+   Top of canvas = front of vehicle (bearing 0 = north). */
+function createCarImageData(fill, stroke) {
+  const PX = 52, S = PX * 2;
+  const cv = document.createElement('canvas');
+  cv.width = S; cv.height = S;
+  const ctx = cv.getContext('2d');
+  const cx = S / 2, cy = S / 2;
+  const bw = S * 0.36, bh = S * 0.58, r = S * 0.10;
+
+  // body
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = S * 0.055;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, r);
+  } else {
+    const x = cx - bw / 2, y = cy - bh / 2;
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + bw - r, y); ctx.arcTo(x + bw, y, x + bw, y + r, r);
+    ctx.lineTo(x + bw, y + bh - r); ctx.arcTo(x + bw, y + bh, x + bw - r, y + bh, r);
+    ctx.lineTo(x + r, y + bh); ctx.arcTo(x, y + bh, x, y + bh - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  ctx.fill(); ctx.stroke();
+
+  // windshield (top = front/north)
+  ctx.fillStyle = 'rgba(0,0,0,0.44)';
+  ctx.beginPath();
+  ctx.rect(cx - bw * 0.28, cy - bh * 0.40, bw * 0.56, bh * 0.19);
+  ctx.fill();
+
+  // rear window
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.rect(cx - bw * 0.24, cy + bh * 0.14, bw * 0.48, bh * 0.16);
+  ctx.fill();
+
+  // four wheels
+  const wx = bw * 0.15, wy = bh * 0.12, wDx = bw * 0.53, wFy = bh * 0.28, wRy = bh * 0.24;
+  ctx.fillStyle = stroke;
+  for (const [dx, dy] of [[-wDx, -wFy], [wDx, -wFy], [-wDx, wRy], [wDx, wRy]]) {
+    ctx.beginPath();
+    ctx.ellipse(cx + dx, cy + dy, wx, wy, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Return the { width, height, data } object Mapbox GL JS requires for addImage
+  const raw = ctx.getImageData(0, 0, S, S);
+  return { width: S, height: S, data: raw.data };
+}
+
+function initFleetLayer() {
+  if (!map || !window.DrevLive) return;
+  _fleetSim = DrevLive.createSimulation(42, TOKEN);
+  const empty = { type: 'FeatureCollection', features: [] };
+
+  try {
+    // Register top-down car icons for each status (2× for HiDPI)
+    map.addImage('drev-car-avail',   createCarImageData('#ffffff', '#0a3fa8'), { pixelRatio: 2 });
+    map.addImage('drev-car-enroute', createCarImageData('#4f80ef', '#07102a'), { pixelRatio: 2 });
+    map.addImage('drev-car-service', createCarImageData('#3ecf80', '#082018'), { pixelRatio: 2 });
+
+    map.addSource('drev-fleet', { type: 'geojson', data: empty });
+
+    /* Soft glow behind available units */
+    map.addLayer({
+      id: 'drev-fleet-glow',
+      type: 'circle',
+      source: 'drev-fleet',
+      filter: ['==', ['get', 'status'], 'available'],
+      paint: {
+        'circle-radius': 26,
+        'circle-color': '#ffffff',
+        'circle-opacity': 0.07,
+        'circle-blur': 0.8,
+      },
+    });
+
+    /* Car icons — rotate with bearing so they face the road */
+    map.addLayer({
+      id: 'drev-fleet-cars',
+      type: 'symbol',
+      source: 'drev-fleet',
+      layout: {
+        'icon-image': [
+          'match', ['get', 'status'],
+          'available',  'drev-car-avail',
+          'en_route',   'drev-car-enroute',
+          'in_service', 'drev-car-service',
+          'drev-car-avail',
+        ],
+        'icon-rotate': ['get', 'bearing'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-size': 1,
+      },
+    });
+
+    /* Unit label beneath each car */
+    map.addLayer({
+      id: 'drev-fleet-labels',
+      type: 'symbol',
+      source: 'drev-fleet',
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': 10,
+        'text-offset': [0, 2.4],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': '#e4f2fa',
+        'text-halo-color': 'rgba(3,8,15,0.88)',
+        'text-halo-width': 1.5,
+      },
+    });
+
+  } catch (_) { return; }
+
+  let lastTick = Date.now();
+
+  function tick() {
+    if (!map || tracking) return;      // don't compete with live-tracking layer
+    const now = Date.now();
+    _fleetSim.tick((now - lastTick) / 1000);
+    lastTick = now;
+    try {
+      map.getSource('drev-fleet')?.setData(DrevLive.providersGeoJSON(_fleetSim));
+    } catch (_) {}
+  }
+
+  tick();
+  _fleetInterval = setInterval(tick, 900);
+}
+
+function destroyFleetLayer() {
+  if (_fleetInterval) { clearInterval(_fleetInterval); _fleetInterval = null; }
+  if (!map) return;
+  for (const id of ['drev-fleet-glow', 'drev-fleet-cars', 'drev-fleet-labels']) {
+    try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {}
+  }
+  try { if (map.getSource('drev-fleet')) map.removeSource('drev-fleet'); } catch (_) {}
+  for (const id of ['drev-car-avail', 'drev-car-enroute', 'drev-car-service']) {
+    try { if (map.hasImage?.(id)) map.removeImage(id); } catch (_) {}
+  }
+}
+
 function initMap() {
   if (!window.mapboxgl) return;
   mapboxgl.accessToken = TOKEN;
@@ -169,12 +331,14 @@ function initMap() {
     failIfMajorPerformanceCaveat: false,
   });
   try { map.setPixelRatio?.(LOW_POWER ? 1 : Math.min(window.devicePixelRatio || 1, 2)); } catch (_) {}
+  window._drevMap = map;
 
   map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
 
   map.on('load', () => {
     initGeocoder();
     dismissIntro();
+    if (window.DrevLive) initFleetLayer();
     if (LOW_POWER) { reverseGeocode(CENTER[0], CENTER[1]); return; }
     try {
       map.setFog({ color: 'rgb(8,18,32)', 'high-color': 'rgb(3,8,15)', 'space-color': 'rgb(3,8,15)', 'star-intensity': 0.9 });
@@ -612,6 +776,10 @@ $('th-exit').addEventListener('click', () => stopLiveTracking());
 function startLiveTracking(req) {
   stopLiveTracking();
   if (!map || !window.DrevLive) { showBanner('Live map is unavailable on this device.', 'info'); return; }
+  // Hide ambient fleet while a real dispatch is being tracked
+  for (const id of ['drev-fleet-glow', 'drev-fleet-dot']) {
+    try { map.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
+  }
   closeProfile();
   snapTo('peek');
 
@@ -693,6 +861,10 @@ function stopLiveTracking() {
     tracking = null;
   }
   $('tracking-hud')?.classList.add('hidden');
+  // Restore ambient fleet
+  for (const id of ['drev-fleet-glow', 'drev-fleet-dot']) {
+    try { map.setLayoutProperty(id, 'visibility', 'visible'); } catch (_) {}
+  }
   if (map) {
     for (const id of ['track-provider', 'track-dest', 'track-route']) {
       try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {}
