@@ -65,6 +65,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <!-- Mapbox GL + Geocoder are loaded dynamically by js/assist-app.js (with a
      timeout and a no-map fallback) so a slow CDN can never freeze first paint. -->
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -183,30 +184,7 @@
 .intro-fb-btn:hover{background:#166fe5}
 .intro-fb-user{font-size:12px;color:#7fe3ff;letter-spacing:.04em;margin-top:4px;text-align:center}
 </style>
-<script>
-(function() {
-  var WORKER = 'https://drev-instagram.wtdc202.workers.dev';
-  var RETURN_URL = 'https://assist.drev.space';
-  document.getElementById('assist-fb-login')?.addEventListener('click', function() {
-    window.location.href = WORKER + '/auth/facebook?return=' + encodeURIComponent(RETURN_URL);
-  });
-  // Handle OAuth return
-  var p = new URLSearchParams(location.search);
-  if (p.get('auth_success') === '1') {
-    var name = p.get('auth_name') || 'User';
-    var sid = p.get('session_id');
-    if (sid) {
-      try { localStorage.setItem('assist_session_id', sid); } catch(e) {}
-      try { localStorage.setItem('assist_session_name', name); } catch(e) {}
-    }
-    history.replaceState(null, '', location.pathname);
-    var el = document.getElementById('assist-fb-user');
-    if (el) { el.textContent = '✓ Signed in as ' + name; el.hidden = false; }
-    var btn = document.getElementById('assist-fb-login');
-    if (btn) btn.textContent = 'Signed in — ' + name;
-  }
-})();
-</script>
+<script src="js/oauth-facebook.js"></script>
 
 <!-- Map fills viewport -->
 <div id="map" role="region" aria-label="Pickup location map"></div>
@@ -453,6 +431,15 @@
 
       <!-- Roadside-specific fields -->
       <div id="roadside-fields">
+        <!-- EV-native status tile: color conveys state at a glance -->
+        <div class="ev-tile" id="ev-tile">
+          <div class="ev-tile-head">
+            <span class="ev-tile-label">BATTERY</span>
+            <span class="ev-tile-pct" id="ev-pct">—</span>
+          </div>
+          <input class="ev-slider" id="inp-battery" type="range" min="0" max="100" step="5" value="35" aria-label="Battery percent"/>
+          <div class="ev-tile-sub" id="ev-sub">Slide to your charge level — helps the unit bring the right gear.</div>
+        </div>
         <div class="form-group">
           <label class="form-label" for="inp-vehicle">VEHICLE *</label>
           <input class="form-input" id="inp-vehicle" type="text" placeholder="e.g. 2024 Tesla Model Y  or  2019 Toyota Camry" autocomplete="off" maxlength="120"/>
@@ -632,46 +619,8 @@
 
 <script src="js/live-data.js"></script>
 <script src="js/assist-app.js?v=2"></script>
-<script>
-(function(){
-  var splash=document.getElementById('intro-splash');
-  if(!splash)return;
-  // dismiss after loader animation completes (1.6s delay + 1.8s duration = 3.4s) + short hold
-  var t=setTimeout(function(){splash.classList.add('done');},3600);
-  // also dismiss immediately if user taps/clicks
-  splash.addEventListener('click',function(){clearTimeout(t);splash.classList.add('done');},{once:true});
-})();
-</script>
-<script>
-/* Force-play all service card videos — iOS blocks multiple autoplay, so we
-   trigger .play() after first user interaction and again via IntersectionObserver */
-(function(){
-  var videos = Array.from(document.querySelectorAll('.svc-card-video'));
-  function playAll(){
-    videos.forEach(function(v){
-      if(v.tagName!=='VIDEO')return;
-      v.play().catch(function(){});
-    });
-  }
-  // Attempt immediate play (works on Android / desktop)
-  playAll();
-  // On first touch/click unlock iOS audio context and retry
-  document.addEventListener('touchstart', playAll, {once:true, passive:true});
-  document.addEventListener('click', playAll, {once:true});
-  // IntersectionObserver: play when card scrolls into view, pause when out
-  if('IntersectionObserver' in window){
-    var io = new IntersectionObserver(function(entries){
-      entries.forEach(function(e){
-        var v = e.target.querySelector('.svc-card-video');
-        if(!v || v.tagName!=='VIDEO')return;
-        if(e.isIntersecting){ v.play().catch(function(){}); }
-        else { v.pause(); }
-      });
-    },{threshold:0.1});
-    document.querySelectorAll('.svc-card').forEach(function(c){ io.observe(c); });
-  }
-})();
-</script>
+<script src="js/intro-splash.js"></script>
+<script src="js/service-videos.js"></script>
 
 <!-- Social follow bar -->
 <div style="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:900;display:flex;gap:8px;align-items:center;background:rgba(8,9,13,.82);border:1px solid rgba(255,255,255,.1);border-radius:50px;padding:8px 16px;backdrop-filter:blur(12px);" aria-label="Follow District Robotics">
@@ -692,14 +641,6 @@
 </div>
 <!-- drev-auth: cross-site session manager -->
 <script src="https://drev.space/assets/js/drev-auth.js"></script>
-<script>
-(function () {
-  DrevAuth.on('login', function (s) {
-    var el = document.getElementById('assist-profile-link');
-    if (el) el.textContent = '👤 ' + s.name.split(' ')[0];
-  });
-  DrevAuth.init();
-})();
-</script>
+<script src="js/auth-boot.js"></script>
 </body>
 </html>
