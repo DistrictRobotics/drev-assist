@@ -8,18 +8,129 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2303080f'/%3E%3Cpath d='M18 4 8 18h6l-2 10L22 14h-6l2-10z' fill='%2300c8ff'/%3E%3C/svg%3E"/>
 <!-- content is injected at the edge by functions/_middleware.js from MAPBOX_TOKEN -->
 <meta name="mapbox-token" content=""/>
-<title>DREV Assist</title>
+<title>DREV Assist — Tech-First Roadside Assistance | Charlotte, NC</title>
+<link rel="canonical" href="https://assist.drev.space/">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://assist.drev.space/">
+<meta property="og:title" content="DREV Assist — Live-Tracked Roadside Assistance, Charlotte NC">
+<meta property="og:description" content="Open the app. See your technician on the map. DREV Assist dispatches real-time with GPS tracking. Jump starts, tires, fuel, lockouts. Charlotte NC. $8/mo subscription.">
+<meta property="og:image" content="https://assist.drev.space/assets/assist-og.jpg">
+<meta property="og:site_name" content="DREV Assist">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@districtrobotics">
+<meta name="twitter:title" content="DREV Assist — Live-Tracked Roadside Assistance | Charlotte NC">
+<meta name="twitter:description" content="Live GPS tracking, real-time dispatch. Jump starts, tires, fuel, lockouts, towing. Charlotte NC — $8/mo. No hold music. No mystery.">
+<meta name="twitter:image" content="https://assist.drev.space/assets/assist-og.jpg">
+
+<!-- Additional SEO -->
+<meta name="keywords" content="roadside assistance Charlotte NC, DREV Assist, live GPS tracking roadside, jump start Charlotte, tire change Charlotte, lockout service Charlotte, EV roadside, subscription roadside assistance">
+<meta name="robots" content="index, follow">
+<meta name="author" content="District Robotics">
+<meta name="geo.region" content="US-NC-119">
+<meta name="geo.placename" content="Charlotte, NC">
+
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": "DREV Assist",
+  "alternateName": "District Robotics Roadside Assistance",
+  "url": "https://assist.drev.space",
+  "telephone": "888-774-0988",
+  "email": "wtdc202@gmail.com",
+  "description": "Tech-first roadside assistance with live GPS dispatch tracking. Jump starts, tire changes, fuel delivery, lockouts. Charlotte NC.",
+  "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "Charlotte",
+    "addressRegion": "NC",
+    "addressCountry": "US"
+  },
+  "areaServed": {
+    "@type": "City",
+    "name": "Charlotte",
+    "containedInPlace": {"@type": "State", "name": "North Carolina"}
+  },
+  "offers": [
+    {"@type": "Offer", "name": "Essential Plan", "price": "8.00", "priceCurrency": "USD", "billingPeriod": "P1M"},
+    {"@type": "Offer", "name": "Flex Plan", "price": "18.00", "priceCurrency": "USD", "billingPeriod": "P1M"}
+  ],
+  "sameAs": ["https://drev.space", "https://www.facebook.com/districtrobotics"]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <!-- Mapbox GL + Geocoder are loaded dynamically by js/assist-app.js (with a
      timeout and a no-map fallback) so a slow CDN can never freeze first paint. -->
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<link rel="stylesheet" href="css/assist.css"/>
+<link rel="stylesheet" href="css/assist.css?v=2"/>
 </head>
 <body>
+
+<!-- ═══ INTRO SPLASH ═══ -->
+<div id="intro-splash" aria-hidden="true">
+  <div class="intro-bg"></div>
+  <div class="intro-road-lines">
+    <div class="road-line"></div><div class="road-line"></div><div class="road-line"></div>
+    <div class="road-line"></div><div class="road-line"></div>
+  </div>
+  <div class="intro-content">
+    <div class="intro-lockup">
+      <img class="intro-mark-img" src="assets/assist-mark.png" alt="" draggable="false"/>
+      <img class="intro-wordmark" src="assets/assist-wordmark.png" alt="DREV Assist" draggable="false"/>
+    </div>
+    <img class="intro-rule" src="assets/assist-tagline.png" alt="Roadside Assistance" draggable="false"/>
+    <div class="intro-loader"><div class="intro-loader-bar"></div></div>
+  </div>
+</div>
+
+<style>
+/* ── Intro splash ── */
+#intro-splash{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#0a3fa8;transition:opacity .6s ease,visibility .6s ease}
+#intro-splash.done{opacity:0;visibility:hidden;pointer-events:none}
+/* DREV blue, edge to edge — the brand colour is the screen, not a vignette
+   over near-black. */
+.intro-bg{position:absolute;inset:0;background:radial-gradient(ellipse 130% 90% at 50% 42%,#1557d6 0%,#0a3fa8 48%,#06306f 100%)}
+/* animated road lines */
+.intro-road-lines{position:absolute;inset:0;overflow:hidden;opacity:.3}
+.road-line{position:absolute;left:50%;width:2px;background:linear-gradient(to bottom,transparent,#bcd8ff 40%,#bcd8ff 60%,transparent);height:60%;top:20%;animation:roadscroll 1.4s linear infinite;transform-origin:top center}
+.road-line:nth-child(1){transform:translateX(-180px) rotate(-8deg);animation-delay:0s}
+.road-line:nth-child(2){transform:translateX(-90px) rotate(-3deg);animation-delay:.28s}
+.road-line:nth-child(3){transform:translateX(0px) rotate(0deg);animation-delay:.56s}
+.road-line:nth-child(4){transform:translateX(90px) rotate(3deg);animation-delay:.84s}
+.road-line:nth-child(5){transform:translateX(180px) rotate(8deg);animation-delay:1.12s}
+@keyframes roadscroll{0%{opacity:0;transform-origin:top center;top:-20%}40%{opacity:1}100%{opacity:0;top:100%}}
+
+/* content */
+.intro-content{position:relative;display:flex;flex-direction:column;align-items:center;gap:18px;padding:0 24px}
+
+/* The collateral sheet is cut into pieces (mark, wordmark, rule), so each
+   lands on its own beat and carries real alpha. The old single image needed
+   mix-blend-mode:screen to lose its white paper, which also bleached the
+   blue and silver — on a blue ground that looked washed out. */
+.intro-lockup{display:flex;align-items:center;gap:clamp(14px,2.6vw,28px)}
+.intro-mark-img{width:clamp(76px,13vw,124px);height:auto;opacity:0;transform:translateX(-18px) scale(.9);animation:markin .75s cubic-bezier(.22,1,.36,1) .25s forwards;filter:drop-shadow(0 6px 22px rgba(0,0,0,.4))}
+.intro-wordmark{width:clamp(168px,30vw,320px);height:auto;opacity:0;transform:translateX(14px);animation:wordin .75s cubic-bezier(.22,1,.36,1) .45s forwards;filter:drop-shadow(0 6px 22px rgba(0,0,0,.4))}
+.intro-rule{width:min(330px,78vw);height:auto;opacity:0;animation:fadein .6s ease .8s forwards;filter:brightness(0) invert(1) opacity(.85)}
+@keyframes markin{to{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes wordin{to{opacity:1;transform:translateX(0)}}
+
+.intro-tagline{font-family:'Orbitron',sans-serif;font-size:clamp(.65rem,.9vw,.8rem);letter-spacing:.25em;color:#cfe2ff;opacity:0;animation:fadein .6s ease .95s forwards;text-align:center}
+@keyframes fadein{to{opacity:1}}
+
+/* loader bar */
+.intro-loader{width:min(280px,70vw);height:3px;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden;opacity:0;animation:fadein .4s ease 1.5s forwards}
+.intro-loader-bar{height:100%;width:0;background:linear-gradient(90deg,#9fc8ff,#ffffff);border-radius:2px;animation:load 1.8s cubic-bezier(.4,0,.2,1) 1.6s forwards}
+@keyframes load{0%{width:0}60%{width:70%}80%{width:88%}100%{width:100%}}
+</style>
 
 <!-- SVG icon library -->
 <svg xmlns="http://www.w3.org/2000/svg" hidden aria-hidden="true">
@@ -48,21 +159,32 @@
 <!-- Intro splash -->
 <div class="intro" id="intro" role="dialog" aria-label="Welcome to DREV Assist">
   <div class="intro-inner">
-    <div class="intro-mark">
-      <span class="intro-ring"></span>
-      <svg width="34" height="34"><use href="#ic-bolt"/></svg>
-    </div>
-    <div class="intro-word"><span>D</span>REV<em> ASSIST</em></div>
+    <img class="intro-brand-mark" src="assets/assist-mark.png" alt="" draggable="false"/>
+    <img class="intro-brand-word" src="assets/assist-wordmark.png" alt="DREV Assist" draggable="false"/>
     <p class="intro-tag">EV charge, roadside help &amp; home energy — Charlotte, NC</p>
     <div class="intro-chips">
       <span>EV Charge</span><span>Jump Start</span><span>Tow</span><span>Home Charging</span>
     </div>
     <button class="intro-cta" id="intro-help">GET HELP NOW</button>
     <button class="intro-link" id="intro-track">Track an existing request</button>
+    <div class="intro-social-divider"><span>or</span></div>
+    <button class="intro-fb-btn" id="assist-fb-login">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>
+      Sign in with Facebook
+    </button>
+    <div id="assist-fb-user" class="intro-fb-user" hidden></div>
     <div class="intro-progress" aria-hidden="true"><i></i></div>
     <p class="intro-911">Emergency? <a href="tel:911">Call 911</a> first.</p>
   </div>
 </div>
+<style>
+.intro-social-divider{display:flex;align-items:center;gap:10px;width:100%;max-width:280px;margin:8px auto 4px;color:rgba(255,255,255,.35);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.intro-social-divider::before,.intro-social-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.15)}
+.intro-fb-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:280px;padding:11px 16px;background:#1877f2;color:#fff;border:none;border-radius:8px;font-family:'Orbitron',sans-serif;font-size:12px;font-weight:600;letter-spacing:.05em;cursor:pointer;transition:background .2s}
+.intro-fb-btn:hover{background:#166fe5}
+.intro-fb-user{font-size:12px;color:#7fe3ff;letter-spacing:.04em;margin-top:4px;text-align:center}
+</style>
+<script src="js/oauth-facebook.js"></script>
 
 <!-- Map fills viewport -->
 <div id="map" role="region" aria-label="Pickup location map"></div>
@@ -170,41 +292,57 @@
       <div class="svc-grid" id="svc-grid-roadside">
 
         <button class="svc-card active" data-svc="mobile-ev-charge" data-cat="roadside" data-pt-only="ev">
+          <video class="svc-card-video" src="assets/service-videos/ev-charge.mp4" poster="assets/service-videos/ev-charge.webp" muted loop playsinline></video>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-bolt"/></svg></div>
           <div class="svc-name">EV Charge</div>
         </button>
 
         <button class="svc-card" data-svc="jump-start" data-cat="roadside">
+          <video class="svc-card-video" src="assets/service-videos/jump-start.mp4" poster="assets/service-videos/jump-start.webp" muted loop playsinline></video>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-battery"/></svg></div>
           <div class="svc-name">Jump Start</div>
         </button>
 
         <button class="svc-card" data-svc="flat-tire" data-cat="roadside">
+          <video class="svc-card-video" src="assets/service-videos/flat-tire.mp4" poster="assets/service-videos/flat-tire.webp" muted loop playsinline></video>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-tire"/></svg></div>
           <div class="svc-name">Flat Tire</div>
         </button>
 
         <button class="svc-card" data-svc="tow-coordination" data-cat="roadside">
+          <video class="svc-card-video" src="assets/service-videos/tow.mp4" poster="assets/service-videos/tow.webp" muted loop playsinline></video>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-tow"/></svg></div>
           <div class="svc-name">Tow</div>
         </button>
 
         <button class="svc-card" data-svc="lockout" data-cat="roadside">
+          <video class="svc-card-video" src="assets/service-videos/lockout.mp4" poster="assets/service-videos/lockout.webp" muted loop playsinline></video>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-key"/></svg></div>
           <div class="svc-name">Lockout</div>
         </button>
 
         <button class="svc-card" data-svc="fuel-delivery" data-cat="roadside" data-pt-only="ice">
+          <div class="svc-card-gradient svc-gradient--fuel"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-fuel"/></svg></div>
           <div class="svc-name">Fuel</div>
         </button>
 
         <button class="svc-card svc-card--warn" data-svc="collision-incident" data-cat="roadside">
+          <div class="svc-card-gradient svc-gradient--incident"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-alert"/></svg></div>
           <div class="svc-name">Incident</div>
         </button>
 
         <button class="svc-card" data-svc="other-roadside" data-cat="roadside">
+          <div class="svc-card-gradient svc-gradient--other"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-wrench"/></svg></div>
           <div class="svc-name">Other</div>
         </button>
@@ -217,31 +355,43 @@
       <div class="svc-grid" id="svc-grid-home">
 
         <button class="svc-card active" data-svc="home-charger-install" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--install"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-home-charge"/></svg></div>
           <div class="svc-name">Install</div>
         </button>
 
         <button class="svc-card" data-svc="home-charger-repair" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--repair"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-plug"/></svg></div>
           <div class="svc-name">Repair</div>
         </button>
 
         <button class="svc-card" data-svc="v2h-planning" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--v2h"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-circuit"/></svg></div>
           <div class="svc-name">V2H</div>
         </button>
 
         <button class="svc-card" data-svc="panel-battery-review" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--panel"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-panel"/></svg></div>
           <div class="svc-name">Panel</div>
         </button>
 
         <button class="svc-card" data-svc="outage-readiness" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--outage"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-shield"/></svg></div>
           <div class="svc-name">Outage Prep</div>
         </button>
 
         <button class="svc-card" data-svc="other-home" data-cat="home">
+          <div class="svc-card-gradient svc-gradient--home-other"></div>
+          <div class="svc-card-video-overlay"></div>
           <div class="svc-icon"><svg width="26" height="26"><use href="#ic-wrench"/></svg></div>
           <div class="svc-name">Other</div>
         </button>
@@ -468,6 +618,29 @@
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#03080f;color:#e4f2fa;font-family:sans-serif">JavaScript required.</div></noscript>
 
 <script src="js/live-data.js"></script>
-<script src="js/assist-app.js"></script>
+<script src="js/assist-app.js?v=2"></script>
+<script src="js/intro-splash.js"></script>
+<script src="js/service-videos.js"></script>
+
+<!-- Social follow bar -->
+<div style="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:900;display:flex;gap:8px;align-items:center;background:rgba(8,9,13,.82);border:1px solid rgba(255,255,255,.1);border-radius:50px;padding:8px 16px;backdrop-filter:blur(12px);" aria-label="Follow District Robotics">
+  <a href="https://www.facebook.com/districtrobotics" target="_blank" rel="noopener" title="Facebook" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.43c0-3.007 1.792-4.669 4.532-4.669 1.312 0 2.686.234 2.686.234v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>
+  </a>
+  <a href="https://www.instagram.com/districtrobotics" target="_blank" rel="noopener" title="Instagram" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+  </a>
+  <a href="https://x.com/districtrobotic" target="_blank" rel="noopener" title="X / Twitter" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.259 5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+  </a>
+  <a href="https://www.tiktok.com/@districtrobotics" target="_blank" rel="noopener" title="TikTok" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.67a8.18 8.18 0 004.78 1.52V6.74a4.85 4.85 0 01-1.01-.05z"/></svg>
+  </a>
+  <span style="width:1px;height:20px;background:rgba(255,255,255,.12);margin:0 4px;"></span>
+  <a href="https://drev.space/profile.html" style="color:rgba(255,255,255,.6);font-size:11px;text-decoration:none;font-family:system-ui,sans-serif;white-space:nowrap;" id="assist-profile-link">Profile</a>
+</div>
+<!-- drev-auth: cross-site session manager -->
+<script src="https://drev.space/assets/js/drev-auth.js"></script>
+<script src="js/auth-boot.js"></script>
 </body>
 </html>
