@@ -1,6 +1,10 @@
 /* Admin API — requires ADMIN_KEY env var (min 16 chars) on CF Pages.
    GET   /api/assist/admin?status=&q=&limit=&offset= — list requests
-   PATCH /api/assist/admin — { id, status?, providerLabel?, scheduledWindow?, note? }
+   PATCH /api/assist/admin — { id, status?, providerLabel?, scheduledWindow?, assignedTechId?, note? }
+
+   assignedTechId is how a dispatcher puts a *real* technician record on a job:
+   the id is checked against the roster before it is stored, and the job then
+   appears in that technician's own app. Passing an empty string unassigns.
 
    The key is compared by SHA-256 digest (timing-safe), status changes must
    follow the shared state machine, every change writes an audit event, and
@@ -70,11 +74,13 @@ export async function onRequest(context) {
     const [providerLabel, e1] = cleanText(body.providerLabel, { max: 120, field: 'Provider' });
     const [scheduledWindow, e2] = cleanText(body.scheduledWindow, { max: 120, field: 'Scheduled window' });
     const [note, e3] = cleanText(body.note, { max: 500, field: 'Note' });
-    for (const e of [e1, e2, e3]) if (e) return err(e, 'INVALID_FIELD', 400, opts);
+    const [assignedTechId, e4] = cleanText(body.assignedTechId, { max: 64, field: 'Technician' });
+    for (const e of [e1, e2, e3, e4]) if (e) return err(e, 'INVALID_FIELD', 400, opts);
     if (status !== undefined && !VALID_STATUSES.has(status)) {
       return err('Invalid status.', 'INVALID_STATUS', 400, opts);
     }
-    if (status === undefined && !providerLabel && !scheduledWindow && !note) {
+    if (status === undefined && !providerLabel && !scheduledWindow && !note
+        && body.assignedTechId === undefined) {
       return err('Nothing to update.', 'EMPTY_UPDATE', 400, opts);
     }
 
@@ -84,18 +90,39 @@ export async function onRequest(context) {
       return err(`Cannot move a ${row.status} request to ${status}.`, 'INVALID_TRANSITION', 409, opts);
     }
 
+    /* Validate the technician against the roster before storing anything.
+       An empty string is an explicit unassign, not a missing value. */
+    let tech = null;
+    if (assignedTechId) {
+      tech = await db.prepare('SELECT * FROM assist_technicians WHERE id = ? AND active = 1')
+        .bind(assignedTechId).first();
+      if (!tech) return err('Unknown or inactive technician.', 'UNKNOWN_TECHNICIAN', 400, opts);
+    }
+    const techId = body.assignedTechId === undefined
+      ? (row.assigned_tech_id ?? null)
+      : (assignedTechId || null);
+
+    /* Dispatching to a tech names the provider on the job by default, so the
+       customer's tracking view and the tech's app agree on who is coming. */
+    const techLabel = tech ? [tech.name, tech.unit].filter(Boolean).join(' · ') : '';
+    const finalProviderLabel = providerLabel || techLabel || row.provider_label;
+
     const now = new Date().toISOString();
     await db.prepare(
-      'UPDATE assist_service_requests SET status = ?, provider_label = ?, scheduled_window = ?, updated_at = ? WHERE id = ?',
+      'UPDATE assist_service_requests SET status = ?, provider_label = ?, scheduled_window = ?, assigned_tech_id = ?, updated_at = ? WHERE id = ?',
     ).bind(
       status ?? row.status,
-      providerLabel || row.provider_label,
+      finalProviderLabel,
       scheduledWindow || row.scheduled_window,
+      techId,
       now, id,
     ).run();
     await db.prepare(
       'INSERT INTO assist_request_events (id, request_id, actor, from_status, to_status, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).bind(crypto.randomUUID(), id, 'admin', row.status, status ?? row.status, note || null, now).run();
+    ).bind(
+      crypto.randomUUID(), id, 'admin', row.status, status ?? row.status,
+      note || (tech ? `Assigned to ${techLabel}` : null), now,
+    ).run();
 
     const updated = await db.prepare('SELECT * FROM assist_service_requests WHERE id = ?').bind(id).first();
     return json({ updated: true, request: updated }, 200, opts);

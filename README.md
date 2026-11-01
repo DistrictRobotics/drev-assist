@@ -37,12 +37,19 @@ npx wrangler d1 migrations apply drev-assist-db
 3. Customers track or cancel (while `submitted`/`reviewed`) at
    `GET|POST /api/assist/status/:id`.
 4. Managers work the queue in `/manager.html`: search, filter, expand a
-   request, set provider/scheduled window, and advance status. The server
-   enforces the state machine everywhere:
+   request, assign a technician, and advance status. The server enforces the
+   state machine everywhere:
 
-   `submitted → reviewed → dispatched → complete`, with `cancelled`
-   reachable from any non-terminal state. Every change writes an audit row
-   to `assist_request_events`.
+   `submitted → reviewed → dispatched → en_route → arrived → complete`,
+   with `cancelled` reachable from any non-terminal state, and dispatch able
+   to complete directly (phone call, dead battery). Every change writes an
+   audit row to `assist_request_events` with the actor
+   (`customer` / `admin` / `technician` / `system`).
+5. The technician works the job in `/tech.html` — their own board only:
+   **START DRIVE** (`en_route`), **I'VE ARRIVED** (`arrived`), **COMPLETE
+   JOB** (`complete`, with an optional note). The customer's tracking pill and
+   banner pick each stage up on their own; the live provider feed stops at
+   `arrived`, because the journey is over.
 
 ## Realtime 3D / 4D layer
 
@@ -89,11 +96,49 @@ the rendering layer would change.
 | `GET /api/assist/live` | public aggregates / admin or dispatcher for full | Realtime map picture (simulated provider feed, labelled) |
 | `GET /api/assist/health` | public | Liveness/config booleans (no secrets) |
 | `GET /api/assist/config` | public | Mapbox public token |
-| `GET/PATCH /api/assist/admin` | `ADMIN_KEY` bearer | Manager queue + status updates |
+| `GET/PATCH /api/assist/admin` | `ADMIN_KEY` bearer | Manager queue + status updates + `assignedTechId` |
+| `GET/POST /api/assist/techs` | `ADMIN_KEY` bearer | Technician roster; POST mints a one-time access code |
+| `POST /api/assist/tech` | access code (login) | Exchange a code for a 12-hour shift session |
+| `GET/PATCH /api/assist/tech` | technician session | My jobs; advance one of **my** jobs |
 | `GET/PUT /api/assist/dispatch` | dispatcher JWT | Dispatcher workspace |
 | `GET/PATCH /api/assist/profile` | customer JWT | Profile |
 | `GET/POST/DELETE /api/assist/vehicles`, `/homes` | customer JWT | Saved vehicles / homes |
 | `POST /api/assist/checkout`, `/webhook` | — | Membership billing (optional) |
+
+## Field app (technicians)
+
+`tech.html` is the app a driver actually uses. It is deliberately not the
+manager: a technician sees only jobs where `assigned_tech_id` is their own
+record, never the dispatch queue, and never a customer email.
+
+**Identity.** Each technician gets a personal access code (`XXXX-XXXX`, no
+`0/O/1/I/L` so it can be read off a card). Only its SHA-256 digest is stored.
+Signing in exchanges the code for a random 12-hour shift session, itself stored
+only as a digest, kept in `sessionStorage` so it dies with the tab on a shared
+cab device. Deployments that *do* have an IdP can instead use a verified JWT
+carrying `drev_technician`, mapped to a provisioned record by `sub` — the same
+pattern `dispatch.js` uses for `drev_dispatcher`.
+
+Provision one either way:
+
+```bash
+# from the manager: + NEW TECH → the code is shown once
+# or offline:
+node tools/add-tech.mjs --name "Maya Ramirez" --unit "Unit 1"
+```
+
+**What the server refuses**, regardless of what the UI sends:
+
+- a technician touching a job assigned to someone else → `403 NOT_YOUR_JOB`
+- a technician setting `cancelled` / `dispatched` / `reviewed` → `403 FORBIDDEN_STATUS`
+- a backwards or skipped transition → `409`
+- an expired or revoked session, or a raw access code used as a bearer token → `401`
+
+**Why two new states.** `en_route` and `arrived` sit between `dispatched` and
+`complete` so the customer is not told "dispatched" for the whole job. Because
+SQLite cannot alter a `CHECK` constraint, `migrations/0004_technicians.sql`
+rebuilds `assist_service_requests` with the wider constraint and the new
+`assigned_tech_id` column, preserving existing rows, events, and indexes.
 
 ## Mobile & performance
 
@@ -150,6 +195,7 @@ billing keys if memberships are enabled.
 
 ```
 index.html / manager.html     customer app / manager dashboard
+tech.html                     field app for technicians (own jobs only)
 css/ js/                      styles + app logic (no inline <script>/<style>)
 functions/api/assist/         Pages Functions (+ _shared.js helpers)
 functions/_middleware.js      Mapbox token injection + security headers
@@ -157,4 +203,5 @@ schema.sql                    full schema for a fresh D1 database
 migrations/                   incremental migrations for existing databases
 tests/                        node --test suites (unit, JWT, routes, static)
 tools/assist-standalone-test.mjs   smoke-check entry point
+tools/add-tech.mjs            mint a technician access code (offline)
 ```

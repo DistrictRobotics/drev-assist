@@ -70,7 +70,11 @@
     <div class="main-hdr">
       <div class="main-title" id="main-title">ALL REQUESTS</div>
       <div class="main-hdr-actions">
-        <input class="search-input tech-input" id="tech-name" type="text" placeholder="Tech name (for dispatch)" aria-label="Tech name for dispatch" maxlength="60"/>
+        <select class="search-input tech-input" id="tech-select" aria-label="Assign technician">
+          <option value="">Dispatch to: roster…</option>
+        </select>
+        <input class="search-input tech-input" id="tech-name" type="text" placeholder="…or type a label" aria-label="Custom provider label" maxlength="60"/>
+        <button class="hdr-btn" id="new-tech-btn" type="button" title="Add a technician and mint an access code">＋ NEW TECH</button>
         <input class="search-input" id="search-input" type="search" placeholder="Search name, phone, ID, location…" aria-label="Search requests"/>
         <label class="auto-label"><input type="checkbox" id="auto-refresh"/> AUTO 30s</label>
         <button class="hdr-btn" id="refresh-btn">↻ REFRESH</button>
@@ -115,5 +119,31 @@
 
 <script src="js/live-data.js"></script>
 <script src="js/manager.js"></script>
+
+  <!-- Provision a technician: the access code is shown once, then only a hash is stored. -->
+  <dialog id="tech-dialog">
+    <form id="tech-form" method="dialog">
+      <h3 class="td-title">NEW TECHNICIAN</h3>
+      <p class="td-sub">Creates a field login for <code>tech.html</code>. The access code is shown once.</p>
+      <label class="td-lbl" for="nt-name">NAME</label>
+      <input class="td-input" id="nt-name" type="text" placeholder="Maya Ramirez" maxlength="80" required/>
+      <label class="td-lbl" for="nt-unit">UNIT (OPTIONAL)</label>
+      <input class="td-input" id="nt-unit" type="text" placeholder="Unit 1" maxlength="40"/>
+      <label class="td-lbl" for="nt-phone">PHONE (OPTIONAL)</label>
+      <input class="td-input" id="nt-phone" type="tel" placeholder="704-555-0100" maxlength="40"/>
+      <p class="td-error hidden" id="nt-error" role="alert"></p>
+      <div class="td-actions">
+        <button class="act-btn a-cancel" id="nt-cancel" type="button">CANCEL</button>
+        <button class="act-btn a-accept" id="nt-save" type="submit">CREATE</button>
+      </div>
+      <div class="td-code hidden" id="nt-result">
+        <div class="td-code-lbl">ACCESS CODE — SHOW ONCE</div>
+        <div class="td-code-val" id="nt-code"></div>
+        <p class="td-sub">Hand this to the technician. It cannot be shown again — rotate it from the roster if lost.</p>
+        <button class="act-btn a-complete" id="nt-done" type="button">DONE</button>
+      </div>
+    </form>
+  </dialog>
+
 </body>
 </html>

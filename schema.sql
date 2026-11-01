@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS assist_service_requests (
   id TEXT PRIMARY KEY,
   category TEXT NOT NULL CHECK (category IN ('roadside','home')),
   service_type TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','reviewed','dispatched','complete','cancelled')),
+  status TEXT NOT NULL DEFAULT 'submitted'
+    CHECK (status IN ('submitted','reviewed','dispatched','en_route','arrived','complete','cancelled')),
   location_label TEXT,
   location_lat REAL,
   location_lng REAL,
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS assist_service_requests (
   customer_email TEXT,
   customer_id TEXT,
   assigned_dispatcher_id TEXT,
+  assigned_tech_id TEXT,             -- assist_technicians.id (NULL until a tech is dispatched)
   provider_label TEXT,
   scheduled_window TEXT,
   idempotency_key TEXT,
@@ -29,6 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_requests_customer ON assist_service_requests(cust
 CREATE INDEX IF NOT EXISTS idx_requests_requested ON assist_service_requests(requested_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_requests_idempotency
   ON assist_service_requests(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_requests_tech
+  ON assist_service_requests(assigned_tech_id, status);
 
 -- Audit trail: one row per status change / dispatcher action.
 CREATE TABLE IF NOT EXISTS assist_request_events (
@@ -94,3 +98,25 @@ CREATE TABLE IF NOT EXISTS assist_members (
   updated_at              TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_members_email ON assist_members(email);
+
+-- Field technicians. Access codes are stored only as SHA-256 digests; mint one
+-- with `node tools/add-tech.mjs --name "Maya R" --unit "Unit 1"`.
+CREATE TABLE IF NOT EXISTS assist_technicians (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  unit TEXT,
+  phone TEXT,
+  access_code_hash TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT
+);
+
+-- Short-lived shift sessions; only the token digest is stored.
+CREATE TABLE IF NOT EXISTS assist_tech_sessions (
+  token_hash TEXT PRIMARY KEY,
+  tech_id TEXT NOT NULL REFERENCES assist_technicians(id),
+  expires_at INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_tech_sessions_expiry ON assist_tech_sessions(expires_at);

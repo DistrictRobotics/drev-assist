@@ -3,9 +3,13 @@
         (only while it is still `submitted` or `reviewed`).
 
    Returns the minimum a customer needs — never PII beyond what tracking
-   requires (provider label / scheduled window once dispatched).
+   requires (provider label / scheduled window once a provider is committed).
+
+   The job states a technician sets (en_route → arrived → complete) surface
+   here so the customer's tracking pill can say "en route" or "arrived"
+   instead of sitting on "dispatched" for the whole job.
 */
-import { json, err, handleOptions, parseJsonBody, isUuid, rateLimit, canTransition } from '../_shared.js';
+import { json, err, handleOptions, parseJsonBody, isUuid, rateLimit, canTransition, TRACKABLE_STATUSES, STATUS_COPY } from '../_shared.js';
 import { providerPositionFor } from '../_live-sim.js';
 
 export async function onRequest(context) {
@@ -57,10 +61,15 @@ export async function onRequest(context) {
       status: row.status,
       requestedAt: row.requested_at,
       updatedAt: row.updated_at,
-      ...(row.status === 'dispatched' || row.status === 'complete'
+      statusLabel: STATUS_COPY[row.status] || row.status,
+      ...(TRACKABLE_STATUSES.has(row.status) || row.status === 'complete'
         ? { providerLabel: row.provider_label || null, scheduledWindow: row.scheduled_window || null }
         : {}),
-      ...(row.status === 'dispatched' ? { providerFeed: providerPositionFor(row) } : {}),
+      /* The provider feed is for the journey. Once they have arrived, the
+         position stops being useful and the pill switches to "arrived". */
+      ...(row.status === 'dispatched' || row.status === 'en_route'
+        ? { providerFeed: providerPositionFor(row) }
+        : {}),
       cancellable: canTransition(row.status, 'cancelled'),
     },
   }, 200, opts);

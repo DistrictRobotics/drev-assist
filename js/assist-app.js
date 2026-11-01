@@ -752,7 +752,12 @@ async function checkStatus() {
     result.className = 'track-result track-ok';
     result.classList.remove('hidden');
     if (r.cancellable) cancelBtn.classList.remove('hidden');
-    if (r.status === 'dispatched') { trackedRequest = r; liveBtn.classList.remove('hidden'); }
+    /* Any committed provider state is worth a map: en route and arrived are
+       set by the technician's app, not just dispatch. */
+    if (r.status === 'dispatched' || r.status === 'en_route' || r.status === 'arrived') {
+      trackedRequest = r;
+      liveBtn.classList.remove('hidden');
+    }
   } catch {
     show('Could not reach the server. Check your connection.', 'track-err');
   }
@@ -916,23 +921,55 @@ function stopStatusWatcher() {
   if (statusWatcher?.timer) clearInterval(statusWatcher.timer);
   statusWatcher = null;
 }
+/* Stage copy mirrors STATUS_COPY in functions/api/assist/_shared.js.
+   `en_route` and `arrived` are set by the technician's app. */
+const STATUS_BANNER = {
+  reviewed: 'A dispatcher is reviewing your request',
+  dispatched: 'Help is on the way',
+  en_route: 'Your technician is en route',
+  arrived: 'Your technician has arrived',
+  complete: 'Service complete — thank you',
+  cancelled: 'Your request was cancelled',
+};
+
 function onCustomerStatusUpdate(r) {
   trackedId = r.id;
   trackedRequest = r;
-  const label = { reviewed: 'A dispatcher is reviewing your request', dispatched: 'Help is on the way', complete: 'Service complete — thank you', cancelled: 'Your request was cancelled' }[r.status] || `Status: ${r.status}`;
-  showBanner(r.providerLabel ? `${label} · ${r.providerLabel}` : label, r.status === 'dispatched' ? 'success' : 'info');
+  const label = STATUS_BANNER[r.status] || `Status: ${r.status}`;
+  const good = r.status === 'dispatched' || r.status === 'en_route' || r.status === 'arrived';
+  showBanner(r.providerLabel ? `${label} · ${r.providerLabel}` : label, good ? 'success' : 'info');
+
   if (!$('confirm-overlay').classList.contains('hidden')) {
-    $('confirm-body').textContent = r.status === 'dispatched'
-      ? `${r.providerLabel || 'Your provider'} has been dispatched. Watch them approach on the map, or track any time with your reference.`
-      : label + '. You can track any time with your reference.';
+    const who = r.providerLabel || 'Your provider';
+    $('confirm-body').textContent = r.status === 'arrived'
+      ? `${who} has arrived at your location.`
+      : good
+        ? `${who} is on the job. Watch them approach on the map, or track any time with your reference.`
+        : label + '. You can track any time with your reference.';
   }
-  if (r.status === 'dispatched') {
+
+  if (good) {
     $('btn-live-track')?.classList.remove('hidden');
+  }
+
+  /* An arrival means the journey is over: stop chasing the pin and say so. */
+  if (r.status === 'arrived') {
+    if (tracking) {
+      $('th-title').textContent = 'Your technician has arrived';
+      $('th-meta').textContent = 'They are at your location. Meet them outside if it is safe.';
+      $('th-bar').style.width = '100%';
+    } else if (map && window.DrevLive && $('review-overlay').classList.contains('hidden')) {
+      startLiveTracking(r);
+    }
+  } else if (r.status === 'dispatched' || r.status === 'en_route') {
     /* Land it on the map — unless the user is mid-review in a dialog. */
     if (map && window.DrevLive && !tracking && $('review-overlay').classList.contains('hidden')) {
       startLiveTracking(r);
+    } else if (tracking) {
+      $('th-title').textContent = (r.providerLabel || 'Provider') + (r.status === 'en_route' ? ' is en route' : ' en route');
     }
   }
+
   if ((r.status === 'complete' || r.status === 'cancelled') && tracking) stopLiveTracking();
 }
 

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#0a0c0f"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>DREV Assist — Field</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0c0f'/%3E%3Cpath d='M18 4 8 18h6l-2 10L22 14h-6l2-10z' fill='%233ddc97'/%3E%3C/svg%3E"/>
+<!-- No webfont: a field device on a truck's connection should paint instantly.
+     System UI + tabular numerals, nothing blocking first render. -->
+<link rel="stylesheet" href="css/tech.css"/>
+</head>
+<body>
+
+<!-- Sign-in. The access code comes from dispatch (POST /api/assist/techs). -->
+<main class="login" id="login">
+  <form class="login-card" id="login-form" novalidate>
+    <div class="brand">DREV <span>FIELD</span></div>
+    <p class="login-sub">Technician sign-in. Use the access code dispatch gave you — not the customer app.</p>
+    <label class="lbl" for="code-input">ACCESS CODE</label>
+    <input class="code-input" id="code-input" type="text" inputmode="text"
+           autocomplete="one-time-code" autocapitalize="characters" spellcheck="false"
+           placeholder="XXXX-XXXX" maxlength="40" required/>
+    <button class="btn-primary" id="login-btn" type="submit">START SHIFT</button>
+    <p class="alert hidden" id="login-error" role="alert"></p>
+    <p class="login-foot">Charlotte, NC · shifts last 12 hours</p>
+  </form>
+</main>
+
+<!-- The shift. -->
+<div class="shell hidden" id="app">
+  <header class="hdr">
+    <div class="hdr-id">
+      <div class="who" id="tech-who">—</div>
+      <div class="unit" id="tech-unit"></div>
+    </div>
+    <div class="hdr-actions">
+      <button class="icon-btn" id="refresh-btn" type="button" aria-label="Refresh jobs" title="Refresh">↻</button>
+      <button class="ghost-btn" id="logout-btn" type="button">SIGN OUT</button>
+    </div>
+  </header>
+
+  <div class="banner hidden" id="banner" role="status" aria-live="polite"></div>
+
+  <main class="body">
+    <section class="sec">
+      <h2 class="sec-h">ON MY PLATE <span class="pill-count" id="active-count">0</span></h2>
+      <div id="jobs"></div>
+    </section>
+
+    <section class="sec" id="recent-sec">
+      <h2 class="sec-h">RECENT</h2>
+      <div id="recent"></div>
+    </section>
+
+    <p class="stamp" id="stamp"></p>
+  </main>
+</div>
+
+<script src="js/tech.js"></script>
+</body>
+</html>
