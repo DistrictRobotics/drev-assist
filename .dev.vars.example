@@ -19,3 +19,11 @@ ALLOWED_ORIGINS=
 # Payments (optional in this repo's scope — see checkout.js / webhook.js).
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+
+# Web Push (job alerts for technicians). Generate a pair with:
+#   node tools/gen-vapid.mjs
+# Leaving these unset disables alerts; the field app says so instead of
+# pretending the toggle worked.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:ops@drev.space

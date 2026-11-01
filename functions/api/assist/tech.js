@@ -1,7 +1,11 @@
 /* Technician (field) API — the app a driver actually uses on the road.
  *
- *   POST  /api/assist/tech   { action: 'login', code }   → shift session token
- *   POST  /api/assist/tech   { action: 'logout' }        → revoke the session
+ *   POST  /api/assist/tech   { action: 'login', code }        → shift session token
+ *   POST  /api/assist/tech   { action: 'logout' }             → revoke the session
+ *   POST  /api/assist/tech   { action: 'push-subscribe', subscription }
+ *                                                            → register this device for job alerts
+ *   POST  /api/assist/tech   { action: 'push-unsubscribe', endpoint }
+ *   POST  /api/assist/tech   { action: 'push-test' }         → send one alert to my devices
  *   GET   /api/assist/tech                                → my jobs
  *   PATCH /api/assist/tech   { id, status, note? }        → advance one of MY jobs
  *
@@ -24,6 +28,7 @@ import {
   json, err, handleOptions, parseJsonBody, cleanText, isUuid,
   rateLimit, sha256Hex, clientIp, authenticate, authConfigured, isTechnician,
 } from './_shared.js';
+import { pushConfigured, notifyTechnician, vapidPublicKey } from './_push.js';
 
 /** Shift length. Long enough for a day's work, short enough to bound a leak. */
 export const TECH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -87,18 +92,21 @@ export async function onRequest(context) {
   const db = env?.ASSIST_DB;
   if (!db) return err('Database not configured.', 'NOT_CONFIGURED', 503, opts);
 
-  /* ── POST — login / logout (the only unauthenticated action) ─────────── */
+  /* ── POST — parse once. A Request body can only be read once, so login and
+     the authenticated push actions share this parse. ─────────────────── */
+  let postBody = null;
   if (request.method === 'POST') {
-    const [body, bodyErr] = await parseJsonBody(request, opts);
+    const [parsed, bodyErr] = await parseJsonBody(request, opts);
     if (bodyErr) return bodyErr;
-    const action = body?.action;
+    postBody = parsed || {};
+    const action = postBody.action;
 
     if (action === 'login') {
       // Brute-force budget per IP: 10 attempts per 5 minutes.
       if (!(await rateLimit(db, request, 'tech-login', 10, 300))) {
         return err('Too many sign-in attempts. Wait a few minutes.', 'RATE_LIMITED', 429, opts);
       }
-      const [code, codeErr] = cleanText(body?.code, { max: 200, required: true, field: 'Access code' });
+      const [code, codeErr] = cleanText(postBody.code, { max: 200, required: true, field: 'Access code' });
       if (codeErr) return err('Access code required.', 'MISSING_CODE', 400, opts);
 
       const tech = await db.prepare(
@@ -128,7 +136,7 @@ export async function onRequest(context) {
       return json({ signedOut: true }, 200, opts);
     }
 
-    return err('Unknown action.', 'INVALID_ACTION', 400, opts);
+    // Not a login action — fall through to the authenticated actions below.
   }
 
   /* ── Everything below needs a technician ─────────────────────────────── */
@@ -136,6 +144,61 @@ export async function onRequest(context) {
   if (error) return error;
   if (!(await rateLimit(db, request, 'tech', 240, 60))) {
     return err('Too many requests.', 'RATE_LIMITED', 429, opts);
+  }
+
+  /* ── Push actions (authenticated: a subscription belongs to a tech) ──── */
+  if (request.method === 'POST') {
+    const body = postBody;
+    const action = body?.action;
+
+    if (action === 'push-subscribe') {
+      const sub = body?.subscription;
+      if (!sub || typeof sub !== 'object') return err('A subscription is required.', 'MISSING_SUBSCRIPTION', 400, opts);
+      const [endpoint, epErr] = cleanText(sub.endpoint, { max: 1000, required: true, field: 'Endpoint' });
+      const [p256dh, kErr] = cleanText(sub.keys?.p256dh, { max: 200, required: true, field: 'Key' });
+      const [auth, aErr] = cleanText(sub.keys?.auth, { max: 100, required: true, field: 'Auth' });
+      for (const e of [epErr, kErr, aErr]) if (e) return err(e, 'INVALID_SUBSCRIPTION', 400, opts);
+      // Only real push-service endpoints: never store an arbitrary URL we
+      // would later POST to on a technician's behalf.
+      let url;
+      try { url = new URL(endpoint); } catch { return err('Endpoint must be a URL.', 'INVALID_SUBSCRIPTION', 400, opts); }
+      if (url.protocol !== 'https:') return err('Endpoint must be https.', 'INVALID_SUBSCRIPTION', 400, opts);
+
+      const [ua] = cleanText(request.headers.get('User-Agent'), { max: 200, field: 'User agent' });
+      await db.prepare(
+        `INSERT INTO assist_push_subscriptions (endpoint, tech_id, p256dh, auth, user_agent)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET tech_id = excluded.tech_id,
+           p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent`,
+      ).bind(endpoint, tech.id, p256dh, auth, ua || null).run();
+
+      return json({ subscribed: true, pushConfigured: pushConfigured(env) }, 200, opts);
+    }
+
+    if (action === 'push-unsubscribe') {
+      const [endpoint] = cleanText(body?.endpoint, { max: 1000, field: 'Endpoint' });
+      if (endpoint) {
+        // Scoped to this technician: one tech cannot unsubscribe another.
+        await db.prepare('DELETE FROM assist_push_subscriptions WHERE endpoint = ? AND tech_id = ?')
+          .bind(endpoint, tech.id).run();
+      }
+      return json({ subscribed: false }, 200, opts);
+    }
+
+    if (action === 'push-test') {
+      if (!pushConfigured(env)) {
+        return err('Job alerts are not configured on this deployment (VAPID keys missing).', 'PUSH_NOT_CONFIGURED', 503, opts);
+      }
+      const result = await notifyTechnician(env, db, tech.id, {
+        title: 'Job alerts are on',
+        body: `${tech.name}, you will get a notification here when dispatch assigns you a job.`,
+        tag: 'drev-test',
+        url: '/tech',
+      });
+      return json({ ...result, delivered: result.sent > 0 }, 200, opts);
+    }
+
+    return err('Unknown action.', 'INVALID_ACTION', 400, opts);
   }
 
   /* ── GET — my jobs (active first, then recent history) ───────────────── */
@@ -151,10 +214,19 @@ export async function onRequest(context) {
        ORDER BY updated_at DESC LIMIT 10`,
     ).bind(tech.id).all();
 
+    const subs = await db.prepare(
+      'SELECT COUNT(*) AS n FROM assist_push_subscriptions WHERE tech_id = ?',
+    ).bind(tech.id).first();
+
     return json({
       tech: publicTech(tech),
       jobs: active.results || [],
       recent: recent.results || [],
+      push: {
+        configured: pushConfigured(env),
+        devices: Number(subs?.n || 0),
+        publicKey: vapidPublicKey(env),
+      },
     }, 200, opts);
   }
 

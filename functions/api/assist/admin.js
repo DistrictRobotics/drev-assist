@@ -15,6 +15,39 @@ import {
   json, err, handleOptions, parseJsonBody, cleanText, escapeLike,
   adminKeyMatches, isAdminConfigured, rateLimit,
 } from './_shared.js';
+import { notifyTechnician } from './_push.js';
+
+const SERVICE_NAMES = {
+  'mobile-ev-charge': 'Mobile EV Charge', 'fuel-delivery': 'Fuel Delivery',
+  'jump-start': 'Jump Start', 'flat-tire': 'Flat Tire', 'lockout': 'Lockout',
+  'tow-coordination': 'Tow Coordination', 'collision-incident': 'Collision Incident',
+  'other-roadside': 'Other Roadside', 'v2h-planning': 'V2H Planning',
+  'home-charger-install': 'Charger Install', 'home-charger-repair': 'Charger Repair',
+  'panel-battery-review': 'Panel Review', 'outage-readiness': 'Outage Readiness',
+  'other-home': 'Other Home',
+};
+
+/** The alert a technician sees on their lock screen. Short, no PII spill. */
+function jobAlert(updated, { assigned, fromStatus }) {
+  const svc = SERVICE_NAMES[updated.service_type] || updated.service_type;
+  const where = updated.location_label || 'your area';
+  if (updated.status === 'cancelled') {
+    return { title: `Job cancelled: ${svc}`, body: `${where} — dispatch cancelled this one.`, tag: `job-${updated.id}`, url: '/tech' };
+  }
+  if (updated.status === 'complete' && !assigned) {
+    return null; // closing a job is not news to the tech who closed it
+  }
+  if (assigned || fromStatus === 'reviewed') {
+    return {
+      title: `New job: ${svc}`,
+      body: `${where}${updated.vehicle ? ` · ${updated.vehicle}` : ''}`,
+      tag: `job-${updated.id}`,
+      url: '/tech',
+      jobId: updated.id,
+    };
+  }
+  return null;
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -125,7 +158,24 @@ export async function onRequest(context) {
     ).run();
 
     const updated = await db.prepare('SELECT * FROM assist_service_requests WHERE id = ?').bind(id).first();
-    return json({ updated: true, request: updated }, 200, opts);
+
+    /* Tell the technician's phone, if this change is theirs to act on.
+       Best-effort: a push failure must never fail (or roll back) a dispatch
+       action that already committed to D1. */
+    let push = { send: 'not-applicable' };
+    const techForPush = techId || null;
+    if (techForPush && techForPush !== row.assigned_tech_id && status === 'dispatched') {
+      // Assignment is the loud one.
+      try {
+        push = await notifyTechnician(env, db, techForPush, jobAlert(updated, { assigned: true, fromStatus: row.status }));
+      } catch (e) { push = { send: 'failed', error: String(e?.message || e) }; }
+    } else if (techForPush && status === 'cancelled') {
+      try {
+        push = await notifyTechnician(env, db, techForPush, jobAlert(updated, { assigned: false, fromStatus: row.status }));
+      } catch (e) { push = { send: 'failed', error: String(e?.message || e) }; }
+    }
+
+    return json({ updated: true, request: updated, push }, 200, opts);
   }
 
   return err('Method not allowed.', 'METHOD_NOT_ALLOWED', 405, opts);

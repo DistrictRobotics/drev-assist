@@ -120,3 +120,14 @@ CREATE TABLE IF NOT EXISTS assist_tech_sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_tech_sessions_expiry ON assist_tech_sessions(expires_at);
+
+-- Web Push subscriptions (one row per device a technician enabled alerts on).
+CREATE TABLE IF NOT EXISTS assist_push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  tech_id TEXT NOT NULL REFERENCES assist_technicians(id),
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_push_tech ON assist_push_subscriptions(tech_id);

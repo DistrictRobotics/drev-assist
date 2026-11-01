@@ -13,6 +13,7 @@ export class FakeDB {
     this.homes = [];
     this.technicians = [];
     this.techSessions = [];
+    this.pushSubs = [];
   }
 
   /* D1 returns only the columns the query names. The fake has to do the same,
@@ -62,12 +63,19 @@ export class FakeDB {
           return db.#project(sql, db.technicians.find(t => t.id === params[0]
             && (!sql.includes('active = 1') || t.active === 1)) || null);
         }
+        if (sql.includes('COUNT(*)') && sql.includes('assist_push_subscriptions')) {
+          return { n: db.pushSubs.filter(s => s.tech_id === params[0]).length };
+        }
         if (sql.includes('FROM assist_tech_sessions')) {
           return db.techSessions.find(s => s.token_hash === params[0]) || null;
         }
         return null;
       },
       async all() {
+        if (sql.includes('FROM assist_push_subscriptions')) {
+          const rows = db.pushSubs.filter(s => s.tech_id === params[0]);
+          return { results: rows.map(r => db.#project(sql, r)) };
+        }
         if (sql.includes('FROM assist_technicians')) {
           const rows = [...db.technicians].sort((a, b) => (b.active - a.active) || String(a.name).localeCompare(String(b.name)));
           return { results: rows.map(r => db.#project(sql, r)) };
@@ -143,6 +151,19 @@ export class FakeDB {
         } else if (sql.startsWith('UPDATE assist_technicians SET access_code_hash')) {
           const tech = db.technicians.find(t => t.id === params[1]);
           if (tech) { tech.access_code_hash = params[0]; changes = 1; }
+        } else if (sql.startsWith('INSERT INTO assist_push_subscriptions')) {
+          const existing = db.pushSubs.findIndex(s => s.endpoint === params[0]);
+          const row = { endpoint: params[0], tech_id: params[1], p256dh: params[2], auth: params[3], user_agent: params[4], created_at: new Date().toISOString() };
+          if (existing >= 0) db.pushSubs[existing] = row; else db.pushSubs.push(row);
+          changes = 1;
+        } else if (sql.startsWith('DELETE FROM assist_push_subscriptions WHERE endpoint = ? AND tech_id = ?')) {
+          const before = db.pushSubs.length;
+          db.pushSubs = db.pushSubs.filter(s => !(s.endpoint === params[0] && s.tech_id === params[1]));
+          changes = before - db.pushSubs.length;
+        } else if (sql.startsWith('DELETE FROM assist_push_subscriptions WHERE endpoint = ?')) {
+          const before = db.pushSubs.length;
+          db.pushSubs = db.pushSubs.filter(s => s.endpoint !== params[0]);
+          changes = before - db.pushSubs.length;
         } else if (sql.startsWith('INSERT INTO assist_tech_sessions')) {
           db.techSessions.push({ token_hash: params[0], tech_id: params[1], expires_at: params[2] });
           changes = 1;

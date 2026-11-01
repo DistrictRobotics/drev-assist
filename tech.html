@@ -43,6 +43,17 @@
 
   <div class="banner hidden" id="banner" role="status" aria-live="polite"></div>
 
+  <!-- Job alerts. Hidden only when the browser cannot do push at all; every
+       other state is shown honestly (blocked / unavailable / on). -->
+  <section class="alerts hidden" id="alerts" aria-labelledby="alerts-title">
+    <div class="alerts-icon" id="alerts-icon" aria-hidden="true">🔔</div>
+    <div class="alerts-copy">
+      <div class="alerts-title" id="alerts-title">Job alerts</div>
+      <div class="alerts-sub" id="alerts-sub">Get a notification the moment dispatch assigns you a job.</div>
+    </div>
+    <button class="alerts-btn" id="alerts-btn" type="button">TURN ON</button>
+  </section>
+
   <main class="body">
     <section class="sec">
       <h2 class="sec-h">ON MY PLATE <span class="pill-count" id="active-count">0</span></h2>
@@ -58,6 +69,7 @@
   </main>
 </div>
 
+<script src="js/push.js"></script>
 <script src="js/tech.js"></script>
 </body>
 </html>

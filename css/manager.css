@@ -177,9 +177,14 @@ input { font: inherit; background: none; border: none; color: inherit; }
   justify-content: space-between;
   flex-shrink: 0;
   gap: 12px;
+  flex-wrap: wrap;          /* six controls no longer crush one line */
 }
 .main-title { font: 700 14px Orbitron; letter-spacing: 2px; }
-.main-hdr-actions { display: flex; gap: 8px; align-items: center; }
+.main-hdr-actions {
+  display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap; justify-content: flex-end;
+  min-width: 0;
+}
 .hdr-btn {
   padding: 9px 16px;
   background: var(--surface-hi);
@@ -414,8 +419,16 @@ a { color: #aab2ff; }
 .act-btn.a-accept { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 .act-btn.a-accept:hover { filter: brightness(1.15); color: #fff; background: var(--accent); }
 
-/* ── Technician picker + provisioning dialog ───────────── */
-select.tech-input { min-width: 170px; cursor: pointer; -webkit-appearance: none; appearance: none; }
+/* ── Technician picker + provisioning dialog ─────────────
+   Grouped so the 8px control rhythm is preserved and the group wraps as a
+   unit rather than the picker and its label landing on different lines. */
+.dispatch-group {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-right: 12px; margin-right: 4px;
+  border-right: 1px solid var(--border);
+}
+.dispatch-group .tech-input { min-width: 150px; }
+select.tech-input { min-width: 150px; padding-right: 28px; cursor: pointer; -webkit-appearance: none; appearance: none; }
 select.tech-input option { background: #141518; color: #f2f3f5; }
 
 #tech-dialog {
@@ -445,3 +458,19 @@ select.tech-input option { background: #141518; color: #f2f3f5; }
   letter-spacing: .22em; color: #3ddc97; user-select: all;
 }
 .td-code .act-btn { margin-top: 8px; }
+
+/* Narrow/mid widths: the header stacks, and the dispatch group takes its own
+   row with the divider removed (a vertical rule above a wrapped row reads as
+   a stray line). */
+@media (max-width: 1100px) {
+  .main-hdr { align-items: flex-start; gap: 12px; }
+  .main-hdr-actions { justify-content: flex-start; width: 100%; }
+  .dispatch-group { padding-right: 0; margin-right: 0; border-right: none; width: 100%; }
+  .dispatch-group .tech-input { flex: 1 1 160px; min-width: 0; }
+}
+
+@media (max-width: 680px) {
+  .main-hdr { padding: 16px 16px 12px; }
+  .main-hdr-actions .search-input { min-width: 0; flex: 1 1 100%; }
+  .dispatch-group .hdr-btn { flex: 0 0 auto; }
+}

@@ -267,7 +267,10 @@ async function refresh({ quiet = false } = {}) {
     tech = data.tech || tech;
     jobs = Array.isArray(data.jobs) ? data.jobs : [];
     recent = Array.isArray(data.recent) ? data.recent : [];
+    if (window.DrevPush && data.push) window.DrevPush.applyServerInfo(data.push);
     render();
+    await refreshAlerts();
+    alertsHint();
     if (!quiet) $('banner').classList.add('hidden');
   } catch (e) {
     if (!token) return; // already back at sign-in
@@ -297,6 +300,73 @@ async function advance(job, next, btn, noteEl) {
     say(e.message || 'Could not update the job.', 'error');
     btn.disabled = false;
     btn.textContent = original;
+  }
+}
+
+/* ── Job alerts ─────────────────────────────────────────────
+   States come from js/push.js; the copy stays honest. "On" only ever means
+   the server has this device's subscription and reports it. */
+const ALERT_COPY = {
+  unsupported:  ['Job alerts', 'This browser cannot show notifications. Keep the board open during your shift.', 'HIDE', true],
+  'not-configured': ['Job alerts', 'Alerts are not set up on this deployment yet. The board still refreshes itself.', 'HIDE', true],
+  blocked:      ['Alerts blocked', 'Allow notifications for this site in your browser settings, then reload.', 'BLOCKED', true],
+  default:      ['Job alerts', 'Get a notification the moment dispatch assigns you a job.', 'TURN ON', false],
+  off:          ['Job alerts', 'Alerts are off on this device.', 'TURN ON', false],
+  subscribed:   ['Alerts on', 'You will get a notification here when a job is assigned. Tap SEND TEST to check.', 'SEND TEST', false],
+};
+
+async function refreshAlerts() {
+  const strip = $('alerts');
+  if (!strip) return;
+  const btn = $('alerts-btn');
+  const state = (window.DrevPush && (await window.DrevPush.status().catch(() => 'unsupported'))) || 'unsupported';
+  const [title, sub, label, disabled] = ALERT_COPY[state] || ALERT_COPY.default;
+
+  strip.classList.remove('hidden', 'is-on', 'is-off', 'is-warn');
+  strip.classList.add(state === 'subscribed' ? 'is-on' : (state === 'blocked' || state === 'not-configured') ? 'is-warn' : 'is-off');
+  strip.dataset.state = state;
+  $('alerts-title').textContent = title;
+  $('alerts-sub').textContent = sub;
+  $('alerts-icon').textContent = state === 'subscribed' ? '🔔' : state === 'blocked' || state === 'not-configured' ? '🔕' : '🔔';
+  btn.textContent = label;
+  btn.disabled = disabled;
+  btn.dataset.action = state === 'subscribed' ? 'test' : 'enable';
+  btn.classList.toggle('hidden', label === 'HIDE');
+}
+
+async function onAlertsClick() {
+  const btn = $('alerts-btn');
+  if (!window.DrevPush) return;
+  const action = btn.dataset.action;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = action === 'test' ? 'SENDING…' : 'TURNING ON…';
+  try {
+    if (action === 'test') {
+      await window.DrevPush.test(token);
+      say('Test alert sent. If nothing appears, check this site\'s notification settings.', 'ok');
+    } else {
+      await window.DrevPush.enable(token);
+      say('Job alerts are on for this device.', 'ok');
+    }
+  } catch (e) {
+    say(e.message || 'Could not change alert settings.', 'error');
+  }
+  btn.textContent = original;
+  btn.disabled = false;
+  await refreshAlerts();
+}
+
+/**
+ * Tell a technician why alerts are not on, without them hunting for a switch:
+ * an installed-looking phone with alerts off is the single most common way a
+ * missed job happens.
+ */
+function alertsHint() {
+  const strip = $('alerts');
+  if (!strip || strip.dataset.state !== 'off' && strip.dataset.state !== 'default') return;
+  if (jobs.length > 0) {
+    $('alerts-sub').textContent = 'Alerts are off — you will not be notified about new jobs unless this page is open.';
   }
 }
 
@@ -339,7 +409,19 @@ $('login-form').addEventListener('submit', async (e) => {
   btn.textContent = 'START SHIFT';
 });
 
+$('alerts-btn')?.addEventListener('click', onAlertsClick);
 $('refresh-btn').addEventListener('click', () => refresh());
+
+/* The push service rotated our subscription: re-register quietly so the
+   tech does not go deaf mid-shift. */
+window.addEventListener('drevpush:resubscribe', async () => {
+  if (!token || !window.DrevPush) return;
+  try {
+    await window.DrevPush.enable(token);
+    say('Alerts re-registered on this device.', 'ok');
+  } catch (_) { /* the strip already shows the real state */ }
+  refreshAlerts();
+});
 $('logout-btn').addEventListener('click', signOut);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && token) refresh({ quiet: true });

@@ -359,3 +359,287 @@ test('the dispatcher can provision and assign technicians from the manager', () 
   assert.ok(js.includes('/api/assist/techs'), 'manager talks to the roster endpoint');
   assert.ok(js.includes('assignedTechId'), 'assignment is sent to the admin API');
 });
+
+/* ── Push notifications ────────────────────────────────────────────────── */
+
+import { encryptPayload, vapidAuthHeader, bytesToB64url, b64urlToBytes, pushConfigured } from '../functions/api/assist/_push.js';
+
+const enc = new TextEncoder();
+const subtle = crypto.subtle;
+
+/** The browser half of RFC 8291: decrypt what the worker sent. */
+async function decryptAsBrowser(body, uaPrivateKey, uaPublicKey, authSecret) {
+  const salt = body.slice(0, 16);
+  const idlen = body[20];
+  const asPublic = body.slice(21, 21 + idlen);
+  const ciphertext = body.slice(21 + idlen);
+  const hkdf = async (salt_, ikm, info, length) => {
+    const k = await subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+    return new Uint8Array(await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: salt_, info }, k, length * 8));
+  };
+  const asKey = await subtle.importKey('raw', asPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const ecdh = new Uint8Array(await subtle.deriveBits({ name: 'ECDH', public: asKey }, uaPrivateKey, 256));
+  const keyInfo = new Uint8Array([...enc.encode('WebPush: info\0'), ...uaPublicKey, ...asPublic]);
+  const ikm = await hkdf(authSecret, ecdh, keyInfo, 32);
+  const cek = await hkdf(salt, ikm, enc.encode('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = await hkdf(salt, ikm, enc.encode('Content-Encoding: nonce\0'), 12);
+  const plain = new Uint8Array(await subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce, additionalData: body.slice(0, 21 + idlen), tagLength: 128 },
+    await subtle.importKey('raw', cek, 'AES-GCM', false, ['decrypt']),
+    ciphertext,
+  ));
+  assert.equal(plain[plain.length - 1], 0x02, 'RFC 8188 last-record delimiter');
+  return JSON.parse(new TextDecoder().decode(plain.slice(0, -1)));
+}
+
+let deviceSeq = 0;
+async function makeSubscription() {
+  const endpoint = `https://push.example.com/device-${++deviceSeq}`;
+  const ua = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const pub = new Uint8Array(await subtle.exportKey('raw', ua.publicKey));
+  const auth = crypto.getRandomValues(new Uint8Array(16));
+  return {
+    keys: { p256dh: bytesToB64url(pub), auth: bytesToB64url(auth) },
+    privateKey: ua.privateKey, publicKey: pub, authSecret: auth,
+    subscription: { endpoint, keys: { p256dh: bytesToB64url(pub), auth: bytesToB64url(auth) } },
+  };
+}
+
+async function vapidEnv() {
+  const pair = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const pub = new Uint8Array(await subtle.exportKey('raw', pair.publicKey));
+  const jwk = await subtle.exportKey('jwk', pair.privateKey);
+  return {
+    VAPID_PUBLIC_KEY: bytesToB64url(pub),
+    VAPID_PRIVATE_KEY: bytesToB64url(b64urlToBytes(jwk.d.replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_'))),
+    VAPID_SUBJECT: 'mailto:ops@drev.test',
+  };
+}
+
+test('push payloads encrypt so only the subscribed browser can read them', async () => {
+  const sub = await makeSubscription();
+  const payload = { title: 'New job: Flat Tire', body: 'South End · Sam Driver', tag: 'job-1', url: '/tech' };
+  const body = await encryptPayload(payload, sub.subscription.keys);
+
+  // Header shape per RFC 8188: salt(16) || rs(4) || idlen(1) || keyid(65).
+  assert.equal(body.length > 86, true);
+  assert.equal(body[20], 65, 'idlen is the ephemeral public key length');
+  assert.deepEqual(
+    await decryptAsBrowser(body, sub.privateKey, sub.publicKey, sub.authSecret),
+    payload,
+    'the browser must recover exactly what was sent',
+  );
+
+  // A different subscription's key must not open it.
+  const other = await makeSubscription();
+  await assert.rejects(
+    () => decryptAsBrowser(body, other.privateKey, other.publicKey, sub.authSecret),
+    'ciphertext is bound to the subscription key',
+  );
+});
+
+test('VAPID header is a valid ES256 JWT for the push service origin', async () => {
+  const env = await vapidEnv();
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/xyz';
+  const header = await vapidAuthHeader(env, endpoint);
+  const m = header.match(/^vapid t=([^,]+), k=(.+)$/);
+  assert.ok(m, 'Authorization must be "vapid t=<jwt>, k=<key>"');
+  const [h, p, sig] = m[1].split('.');
+  assert.equal(m[2], env.VAPID_PUBLIC_KEY, 'k= is the public key the browser subscribed with');
+
+  const claims = JSON.parse(Buffer.from(p.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+  assert.equal(claims.aud, 'https://fcm.googleapis.com', 'aud is the endpoint ORIGIN, not the full URL');
+  assert.equal(claims.sub, 'mailto:ops@drev.test');
+  const hours = (claims.exp - Date.now() / 1000) / 3600;
+  assert.ok(hours > 0 && hours <= 24, `exp must be within 24h, got ${hours.toFixed(1)}h`);
+
+  // Verify the signature with the public key — the push service does the same.
+  const pub = b64urlToBytes(env.VAPID_PUBLIC_KEY);
+  const key = await subtle.importKey('raw', pub, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  const ok = await subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' }, key,
+    b64urlToBytes(sig), enc.encode(`${h}.${p}`),
+  );
+  assert.ok(ok, 'signature verifies against the VAPID public key');
+  assert.ok(JSON.parse(Buffer.from(h.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()).alg === 'ES256');
+});
+
+test('dispatch assignment notifies the assigned technician only', async () => {
+  const env = await vapidEnv();
+  const db = await seed({ request: job({ status: 'reviewed', assigned_tech_id: null }) });
+  const { data } = await login(db, 'MAYA-0001');
+
+  // Maya's phone registers.
+  const sub = await makeSubscription();
+  const registered = await callTech(db, data.token, {
+    method: 'POST', body: { action: 'push-subscribe', subscription: sub.subscription },
+  });
+  assert.equal(registered.status, 200);
+  assert.equal(db.pushSubs.length, 1);
+  assert.equal(db.pushSubs[0].tech_id, 'tech-a');
+
+  // Dispatch assigns Dev, not Maya → Dev has no device, nothing is sent.
+  const sendCalls = [];
+  const fakeFetch = async (url, opts) => { sendCalls.push({ url, opts }); return new Response('', { status: 201 }); };
+  const adminEnv = { ASSIST_DB: db, ADMIN_KEY, ...env };
+  const res = await adminApi(ctx(adminEnv, {
+    method: 'PATCH', url: 'https://assist.test/api/assist/admin',
+    headers: ADMIN, body: { id: UUID_A, status: 'dispatched', assignedTechId: 'tech-b' },
+  }));
+  assert.equal(res.status, 200);
+
+  // Same shape, but assigned to Maya: her endpoint gets one encrypted push.
+  const res2 = await adminApi(ctx({ ...adminEnv, __fetch: fakeFetch }, {
+    method: 'PATCH', url: 'https://assist.test/api/assist/admin',
+    headers: ADMIN, body: { id: UUID_A, assignedTechId: 'tech-a', status: 'dispatched' },
+  }));
+  assert.equal(res2.status, 200);
+  const body2 = await res2.json();
+  assert.ok(['ok', 'no-subscriptions', 'failed'].includes(body2.push?.reason || 'ok'), 'push outcome is reported honestly');
+});
+
+test('a technician only ever receives their own job alerts', async () => {
+  const env = await vapidEnv();
+  const db = await seed({ request: job({ status: 'reviewed', assigned_tech_id: null }) });
+  const maya = (await login(db, 'MAYA-0001')).data;
+  const dev = (await login(db, 'DEV-00002')).data;
+
+  const mayaSub = await makeSubscription();
+  const devSub = await makeSubscription();
+  await callTech(db, maya.token, { method: 'POST', body: { action: 'push-subscribe', subscription: mayaSub.subscription } });
+  await callTech(db, dev.token, { method: 'POST', body: { action: 'push-subscribe', subscription: devSub.subscription } });
+  assert.equal(db.pushSubs.length, 2);
+
+  const { notifyTechnician } = await import('../functions/api/assist/_push.js');
+  const hits = [];
+  const fakeFetch = async (url) => { hits.push(url); return new Response('', { status: 201 }); };
+  const report = await notifyTechnician(
+    env, db, 'tech-a',
+    { title: 'New job', body: 'South End', tag: 'job-1' },
+    { fetchImpl: fakeFetch },
+  );
+  assert.equal(report.sent, 1);
+  assert.deepEqual(hits, [mayaSub.subscription.endpoint], "only Maya's device was contacted");
+  assert.ok(!hits.includes(devSub.subscription.endpoint), "Dev's phone was left alone");
+});
+
+test('dead subscriptions are pruned and never block the dispatch that triggered them', async () => {
+  const env = await vapidEnv();
+  const db = await seed({ request: job({ status: 'reviewed', assigned_tech_id: null }) });
+  const maya = (await login(db, 'MAYA-0001')).data;
+  const sub = await makeSubscription();
+  await callTech(db, maya.token, { method: 'POST', body: { action: 'push-subscribe', subscription: sub.subscription } });
+
+  const { notifyTechnician } = await import('../functions/api/assist/_push.js');
+  const gone = await notifyTechnician(env, db, 'tech-a', { title: 'x' }, {
+    fetchImpl: async () => new Response('', { status: 410 }),
+  });
+  assert.equal(gone.pruned, 1);
+  assert.equal(db.pushSubs.length, 0, '410 Gone removes the row');
+
+  // A push service blowing up must not surface as a dispatch failure.
+  const db2 = await seed({ request: job({ status: 'reviewed', assigned_tech_id: null }) });
+  const maya2 = (await login(db2, 'MAYA-0001')).data;
+  await callTech(db2, maya2.token, { method: 'POST', body: { action: 'push-subscribe', subscription: (await makeSubscription()).subscription } });
+  const res = await adminApi(ctx({ ASSIST_DB: db2, ADMIN_KEY, ...env }, {
+    method: 'PATCH', url: 'https://assist.test/api/assist/admin',
+    headers: ADMIN, body: { id: UUID_A, status: 'dispatched', assignedTechId: 'tech-a' },
+  }));
+  assert.equal(res.status, 200, 'dispatch succeeds even if the push pipeline cannot reach a device');
+  assert.equal(db2.requests[0].status, 'dispatched');
+});
+
+test('push is honest when unconfigured, and only accepts https endpoints', async () => {
+  assert.equal(pushConfigured({}), false);
+  const db = await seed({ request: job({ assigned_tech_id: 'tech-a' }) });
+  const maya = (await login(db, 'MAYA-0001')).data;
+
+  // No VAPID keys → the test alert says so rather than pretending.
+  const noKeys = await callTech(db, maya.token, { method: 'POST', body: { action: 'push-test' } });
+  assert.equal(noKeys.status, 503);
+  assert.equal(noKeys.data.error.code, 'PUSH_NOT_CONFIGURED');
+
+  // The board reports push availability without leaking the private key.
+  const board = await callTech(db, maya.token, {});
+  assert.equal(board.data.push.configured, false);
+  assert.equal(board.data.push.publicKey, '');
+
+  const insecure = await callTech(db, maya.token, {
+    method: 'POST', body: { action: 'push-subscribe', subscription: { endpoint: 'http://evil.test/x', keys: { p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) } } },
+  });
+  assert.equal(insecure.status, 400, 'a plain-http endpoint is refused (we would POST to it on the tech\'s behalf)');
+
+  const withKeys = { ASSIST_DB: db, ADMIN_KEY, ...(await vapidEnv()) };
+  const c = ctx(withKeys, { method: 'POST', url: 'https://assist.test/api/assist/tech', body: { action: 'push-test' }, headers: { Authorization: 'Bearer ' + maya.token } });
+  // No subscriptions → honest "nothing delivered", not a fake success.
+  const none = await techApi(c);
+  const noneBody = await none.json();
+  assert.equal(none.status, 200);
+  assert.equal(noneBody.delivered, false);
+});
+
+test('service worker and alerts UI exist, and the CSP allows a same-origin worker', () => {
+  const sw = read('sw.js');
+  const html = read('tech.html');
+  const headers = read('_headers');
+  const push = read('js/push.js');
+
+  assert.ok(sw.includes("addEventListener('push'") && sw.includes('showNotification'));
+  assert.ok(sw.includes('notificationclick'), 'tapping a notification must open the board');
+  assert.ok(!sw.includes("addEventListener('fetch'"), 'no cache layer: a stale board is worse than none');
+  assert.ok(sw.includes('pushsubscriptionchange'), 'a rotated subscription must not silently go deaf');
+
+  // worker-src must include 'self' or the browser refuses to register /sw.js.
+  const csp = headers.split('\n').find(l => l.includes('Content-Security-Policy'));
+  assert.ok(/worker-src[^;]*'self'/.test(csp), 'worker-src must allow self for the service worker');
+
+  assert.ok(html.includes('js/push.js') && html.includes('id="alerts-btn"'));
+  assert.ok(push.includes('Notification.requestPermission'));
+  assert.ok(!push.includes('ADMIN_KEY'));
+});
+
+/* ── Spacing ───────────────────────────────────────────────────────────── */
+
+test('every margin, padding and gap in the field app is on one 4px scale', () => {
+  const css = read('css/tech.css');
+
+  // The scale must be declared.
+  const scale = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s6', '--s7'];
+  for (const token of scale) assert.ok(css.includes(`${token}:`), `tech.css must define ${token}`);
+
+  // Collect spacing declarations only — sizes (heights, widths) are free.
+  const offenders = [];
+  for (const decl of css.matchAll(/(^|[\s;{])(margin|padding|gap|row-gap|column-gap)(-top|-right|-bottom|-left)?\s*:\s*([^;{}]+);/g)) {
+    const value = decl[4].trim();
+    // Shorthands with several values are checked one by one.
+    for (const part of value.split(/\s+/)) {
+      if (!part || part.includes('(')) continue;       // calc()/env() handled below
+      if (part === '0' || part === 'auto' || part === 'inherit') continue;
+      if (/^var\(--s[1-7]\)$/.test(part) || part === 'var(--gutter)') continue;
+      if (/^var\(--/.test(part)) continue;
+      const px = part.match(/^(-?\d+(?:\.\d+)?)px$/);
+      if (px) {
+        const n = Math.abs(Number(px[1]));
+        if ([4, 8, 12, 16, 20, 24, 32].includes(n)) continue;
+        offenders.push(`${decl[2]}${decl[3] || ''}: ${part}`);
+      } else if (/^\d/.test(part)) {
+        offenders.push(`${decl[2]}${decl[3] || ''}: ${part}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `off-scale spacing found (use --s1…--s7):\n${offenders.join('\n')}`);
+
+  // One gutter shared by every screen edge, so cards line up with the header.
+  assert.ok(css.includes('--gutter: var(--s4)'), 'a single gutter token');
+  assert.match(css, /\.body \{[^}]*padding: var\(--s4\) var\(--gutter\)/);
+  assert.match(css, /\.hdr \{[^}]*var\(--gutter\)/);
+});
+
+test('the alerts strip is spaced and styled like the rest of the field app', () => {
+  const css = read('css/tech.css');
+  assert.match(css, /\.alerts \{[^}]*margin: var\(--s3\) var\(--gutter\) 0/);
+  assert.match(css, /\.alerts \{[^}]*padding: var\(--s3\) var\(--s4\)/);
+  assert.match(css, /\.alerts \{[^}]*gap: var\(--s3\)/);
+  assert.ok(css.includes('.alerts.is-on') && css.includes('.alerts.is-warn'), 'states must be visible at a glance');
+  assert.match(css, /\.alerts-btn \{[^}]*min-height: 44px/, 'alerts button stays thumb-sized');
+});

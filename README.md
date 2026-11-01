@@ -134,6 +134,39 @@ node tools/add-tech.mjs --name "Maya Ramirez" --unit "Unit 1"
 - a backwards or skipped transition → `409`
 - an expired or revoked session, or a raw access code used as a bearer token → `401`
 
+### Job alerts (Web Push)
+
+A phone in a mount should light up when dispatch assigns a job, not depend on
+someone looking at the screen. The field app can register for real Web Push —
+no npm dependency, no third-party service:
+
+- `sw.js` is a service worker with exactly one job: turn a push message into a
+  notification and open the board when it is tapped. **It does not cache
+  pages or intercept fetches** — a stale "no jobs assigned" is worse than none.
+- `functions/api/assist/_push.js` implements RFC 8292 (VAPID, ES256) and
+  RFC 8291/8188 (`aes128gcm`) on WebCrypto, so the push service relays
+  ciphertext it cannot read. Tests decrypt what the worker produced, using the
+  subscription's private key, and verify the VAPID signature with the public key.
+- Alerts fire when dispatch assigns a job, and when a job is cancelled. Sending
+  is **best-effort on purpose**: a dead phone must never fail a dispatch that
+  already committed to D1. The outcome (`sent` / `pruned` / `failed`) is
+  returned to the manager and logged, not hidden.
+- Endpoints the push service reports as gone (404/410) are deleted.
+  Subscriptions are scoped to one technician, so one tech cannot mute another.
+
+Enable it:
+
+```bash
+node tools/gen-vapid.mjs            # prints VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
+# paste into .dev.vars (local) and the Pages project env (production)
+npx wrangler d1 execute drev-assist-db --local --file migrations/0005_push.sql
+```
+
+With no keys set, push is simply off, and the field app says so — it never
+shows a green "alerts on" toggle that sends nothing. The public key is served
+from `GET /api/assist/config` and `GET /api/assist/tech`; the private key never
+leaves the server.
+
 **Why two new states.** `en_route` and `arrived` sit between `dispatched` and
 `complete` so the customer is not told "dispatched" for the whole job. Because
 SQLite cannot alter a `CHECK` constraint, `migrations/0004_technicians.sql`
@@ -179,8 +212,10 @@ See [SECURITY.md](SECURITY.md). The short version:
 ## Environment variables
 
 See `.dev.vars.example` — `MAPBOX_TOKEN`, `ADMIN_KEY`, optional
-`AUTH_ISSUER` / `AUTH_JWKS_URL` / `AUTH_AUDIENCE`, `ALLOWED_ORIGINS`, and the
-billing keys if memberships are enabled.
+`AUTH_ISSUER` / `AUTH_JWKS_URL` / `AUTH_AUDIENCE`, `ALLOWED_ORIGINS`, the
+billing keys if memberships are enabled, and `VAPID_PUBLIC_KEY` /
+`VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for job alerts (`node tools/gen-vapid.mjs`).
+Push is off, and reported as off, until the VAPID pair is set.
 
 ## Honesty rules (do not regress)
 
@@ -190,6 +225,18 @@ billing keys if memberships are enabled.
   details, vehicle, or notes) may be kept in `sessionStorage`; nothing is
   auto-retried.
 - Tracking shows provider/scheduled window only once dispatched.
+- "Alerts on" means both halves agree: a subscription in the browser **and** a
+  row on the server. A blocked permission, a missing VAPID key, or a pruned
+  subscription is shown as exactly that.
+
+## Spacing
+
+`css/tech.css` (the field app) declares one 4px scale — `--s1` 4px through
+`--s7` 32px — plus a single `--gutter` for every screen edge, and **every**
+margin, padding and gap in that file must use a step on it. `tests/tech.test.mjs`
+parses the stylesheet and fails on any off-scale value (7px, 14px, 18px, 26px…),
+so the rhythm cannot drift back. Sizes such as 44px/56px touch targets are not
+spacing and are free to differ.
 
 ## Layout
 
@@ -204,4 +251,6 @@ migrations/                   incremental migrations for existing databases
 tests/                        node --test suites (unit, JWT, routes, static)
 tools/assist-standalone-test.mjs   smoke-check entry point
 tools/add-tech.mjs            mint a technician access code (offline)
+tools/gen-vapid.mjs           generate the Web Push key pair
+sw.js                         service worker (notifications only, no caching)
 ```
