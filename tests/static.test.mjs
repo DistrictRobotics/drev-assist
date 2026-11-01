@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from 'node:fs';
 const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
 
 test('no inline event handlers or inline scripts (CSP can drop unsafe-inline for scripts)', () => {
-  for (const page of ['index.html', 'manager.html']) {
+  for (const page of ['index.html', 'manager.html', 'tech.html']) {
     const html = read(page);
     assert.ok(!/\son\w+="/.test(html), `${page} still has an inline handler`);
     assert.ok(!/<script>(?!\s*src)/.test(html.replace(/<script src=[^>]*><\/script>/g, '')), `${page} still has an inline script`);

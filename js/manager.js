@@ -207,20 +207,62 @@ async function patchRequest(payload, okMsg) {
   toast(okMsg);
 }
 
-/* Tech accepts a job: persist reviewed (if new) then dispatched + tech
-   name to D1 via the admin API. The customer app polls the status API,
-   so its map picks this up within seconds — no local-only state. */
+/* ── Technician roster ─────────────────────────────────
+   The picker is populated from the admin roster endpoint. A failure here is
+   non-fatal: dispatch can still type a label, and Accept keeps working. */
+let technicians = [];
+
+async function loadTechs() {
+  const sel = $('tech-select');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/assist/techs', { headers: { Authorization: 'Bearer ' + adminKey } });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    technicians = (data.technicians || []).filter(t => t.active);
+  } catch (_) {
+    technicians = [];
+  }
+  const current = sel.value;
+  sel.replaceChildren();
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = technicians.length ? 'Dispatch to: roster…' : 'No technicians yet';
+  sel.append(none);
+  for (const tech of technicians) {
+    const opt = document.createElement('option');
+    opt.value = tech.id;
+    opt.textContent = [tech.name, tech.unit].filter(Boolean).join(' · ');
+    sel.append(opt);
+  }
+  if (technicians.some(t => t.id === current)) sel.value = current;
+}
+
+/* Tech accepts a job: persist reviewed (if new) then dispatched to D1.
+   If a technician is picked from the roster we send assignedTechId, which
+   puts the job in that technician's field app; the server derives the
+   customer-facing provider label from the roster entry. A typed label still
+   works for one-off providers who have no login. The customer app polls the
+   status API, so its map picks this up within seconds — no local-only state. */
 async function acceptRequest(id, btn) {
-  const tech = ($('tech-name').value || '').trim() || 'DREV Field Tech';
+  const picked = $('tech-select')?.value || '';
+  const rosterTech = technicians.find(t => t.id === picked) || null;
+  const typed = ($('tech-name')?.value || '').trim();
+  const label = typed || (rosterTech ? [rosterTech.name, rosterTech.unit].filter(Boolean).join(' · ') : '') || 'DREV Field Tech';
   btn.disabled = true;
   const original = btn.textContent;
   btn.textContent = 'DISPATCHING…';
   try {
     const req = allRequests.find(r => r.id === id);
     if (req && req.status === 'submitted') {
-      await patchRequest({ id, status: 'reviewed', note: `Accepted by ${tech}` }, 'ACCEPTED');
+      await patchRequest({ id, status: 'reviewed', note: `Accepted by ${label}` }, 'ACCEPTED');
     }
-    await patchRequest({ id, status: 'dispatched', providerLabel: tech, note: `Dispatched to ${tech}` }, 'DISPATCHED → CUSTOMER MAP UPDATING');
+    await patchRequest({
+      id, status: 'dispatched',
+      ...(rosterTech ? { assignedTechId: rosterTech.id } : {}),
+      providerLabel: label,
+      note: `Dispatched to ${label}`,
+    }, rosterTech ? `DISPATCHED → ${rosterTech.name.toUpperCase()}'S APP` : 'DISPATCHED → CUSTOMER MAP UPDATING');
   } catch (e) {
     toast('ERROR: ' + e.message, true);
     btn.disabled = false;
@@ -512,6 +554,7 @@ async function doLogin() {
     applyFilter('all');
     initDispatchMap();
     syncAutoRefresh();
+    loadTechs();
   } catch (e) {
     adminKey = '';
     $('login-err').textContent = e.message.includes('expired') || e.message.includes('Unauthorized')
@@ -571,3 +614,69 @@ $('req-list').addEventListener('click', async e => {
 $('refresh-btn').addEventListener('click', loadRequests);
 $('logout-btn').addEventListener('click', logout);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && adminKey) { /* keep dashboard open; Escape reserved */ } });
+
+/* ── Provision a technician ─────────────────────────────
+   POST /api/assist/techs mints a one-time access code. Only the SHA-256
+   digest is stored server-side, so the code is displayed exactly here and
+   never again — the roster can only rotate it. */
+(function initTechDialog() {
+  const dlg = $('tech-dialog');
+  const form = $('tech-form');
+  if (!dlg || !form) return;
+
+  const openDialog = () => {
+    $('nt-error').classList.add('hidden');
+    $('nt-result').classList.add('hidden');
+    for (const id of ['nt-name', 'nt-unit', 'nt-phone']) $(id).value = '';
+    $('nt-save').classList.remove('hidden');
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.setAttribute('open', '');
+    $('nt-name').focus();
+  };
+  const closeDialog = () => {
+    if (typeof dlg.close === 'function' && dlg.open) dlg.close();
+    else dlg.removeAttribute('open');
+  };
+
+  $('new-tech-btn')?.addEventListener('click', openDialog);
+  $('nt-cancel')?.addEventListener('click', closeDialog);
+  $('nt-done')?.addEventListener('click', () => {
+    closeDialog();
+    loadTechs();
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = $('nt-name').value.trim();
+    const errEl = $('nt-error');
+    errEl.classList.add('hidden');
+    if (!name) {
+      errEl.textContent = 'A name is required.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    const btn = $('nt-save');
+    btn.disabled = true;
+    btn.textContent = 'CREATING…';
+    try {
+      const res = await fetch('/api/assist/techs', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + adminKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, unit: $('nt-unit').value.trim(), phone: $('nt-phone').value.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) { logout(); throw new Error('Session expired'); }
+      if (!res.ok) throw new Error(data.error?.message || 'Could not create the technician.');
+      $('nt-code').textContent = data.accessCode || '';
+      $('nt-result').classList.remove('hidden');
+      btn.classList.add('hidden');
+      await loadTechs();
+      if (data.technician?.id) $('tech-select').value = data.technician.id;
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+    }
+    btn.textContent = 'CREATE';
+  });
+})();

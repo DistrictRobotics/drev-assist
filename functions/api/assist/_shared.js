@@ -37,17 +37,36 @@ export const VALID_POWERTRAINS = new Set(['ev', 'ice']);
 
 /* ── Request status state machine (one vocabulary everywhere) ──────────── */
 
-export const VALID_STATUSES = new Set(['submitted', 'reviewed', 'dispatched', 'complete', 'cancelled']);
+export const VALID_STATUSES = new Set(['submitted', 'reviewed', 'dispatched', 'en_route', 'arrived', 'complete', 'cancelled']);
 export const STATUS_TRANSITIONS = Object.freeze({
   submitted:  ['reviewed', 'cancelled'],
   reviewed:   ['dispatched', 'cancelled'],
-  dispatched: ['complete', 'cancelled'],
+  /* A dispatched job is in the tech's hands: they set off, arrive, then close
+     it out. Dispatch can still complete or cancel on the tech's behalf (phone
+     call, dead battery), so those edges stay open from every active state. */
+  dispatched: ['en_route', 'arrived', 'complete', 'cancelled'],
+  en_route:   ['arrived', 'complete', 'cancelled'],
+  arrived:    ['complete', 'cancelled'],
   complete:   [],
   cancelled:  [],
 });
 export function canTransition(from, to) {
   return (STATUS_TRANSITIONS[from] || []).includes(to);
 }
+
+/** States where a provider is committed to the job and the customer is watching. */
+export const TRACKABLE_STATUSES = new Set(['dispatched', 'en_route', 'arrived']);
+
+/** Human copy for a status, shared by the customer app and the tech app. */
+export const STATUS_COPY = Object.freeze({
+  submitted: 'Submitted — waiting for a dispatcher',
+  reviewed:  'A dispatcher is reviewing your request',
+  dispatched: 'Help is on the way',
+  en_route:  'Your technician is en route',
+  arrived:   'Your technician has arrived',
+  complete:  'Service complete — thank you',
+  cancelled: 'Request cancelled',
+});
 
 /* ── HTTP helpers ───────────────────────────────────────────────────────── */
 
@@ -304,4 +323,12 @@ export async function requireAuth(request, env, opts = {}) {
 export function isDispatcher(claims) {
   const groups = claims?.['cognito:groups'] || claims?.groups || [];
   return Array.isArray(groups) && groups.includes('drev_dispatcher');
+}
+
+/* Field technicians. Deliberately a separate group from drev_dispatcher:
+   a tech gets their own assigned jobs, not the whole dispatch board. */
+export const TECH_GROUP = 'drev_technician';
+export function isTechnician(claims) {
+  const groups = claims?.['cognito:groups'] || claims?.groups || [];
+  return Array.isArray(groups) && groups.includes(TECH_GROUP);
 }

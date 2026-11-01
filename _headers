@@ -5,7 +5,7 @@
   X-Frame-Options: SAMEORIGIN
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://api.mapbox.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://*.mapbox.com; connect-src 'self' https://*.mapbox.com https://events.mapbox.com https://static.cloudflareinsights.com; worker-src blob:; frame-ancestors 'self' https://arena.ai https://*.arena.ai https://*.e2b.app; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://api.mapbox.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://*.mapbox.com; connect-src 'self' https://*.mapbox.com https://events.mapbox.com https://static.cloudflareinsights.com; worker-src 'self' blob:; frame-ancestors 'self' https://arena.ai https://*.arena.ai https://*.e2b.app; object-src 'none'; base-uri 'self'; form-action 'self'
 
 /api/*
   Cache-Control: no-store
@@ -13,6 +13,12 @@
 
 /*.html
   Cache-Control: no-cache
+
+# The service worker must never be served stale, or a fixed worker can be
+# pinned for up to 24h by the browser.
+/sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
 
 /css/*
   Cache-Control: public, max-age=3600
